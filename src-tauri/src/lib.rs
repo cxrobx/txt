@@ -2,6 +2,7 @@ pub mod embed;
 pub mod mcp;
 pub mod notes;
 mod titles;
+mod update;
 
 use embed::{Hit, Index, Status};
 use notes::{KeywordHit, NoteDoc, NoteMeta, Store};
@@ -288,6 +289,7 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         &[
             &PredefinedMenuItem::about(app, Some("About txt"), None)?,
+            &MenuItem::with_id(app, "check-updates", "Check for Updates…", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,
@@ -358,6 +360,8 @@ pub fn run() {
             handle_urls_later(app, argv.into_iter().filter(|a| a.starts_with("txt://")).collect());
         }))
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(Store::new(notes_dir, support.clone()))
         .manage(Index::open(&support, embed::Config::load(&support)))
         .menu(|app| menu(app))
@@ -369,6 +373,9 @@ pub fn run() {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "new-window" => {
                 let _ = new_window(app, None, None);
+            }
+            "check-updates" => {
+                tauri::async_runtime::spawn(update::check(app.clone(), true));
             }
             "close-window" => {
                 if let Some(w) = focused(app) {
@@ -388,6 +395,7 @@ pub fn run() {
             std::thread::spawn(move || embed::run(worker));
             let watcher = app.handle().clone();
             std::thread::spawn(move || watch(watcher));
+            update::start(app.handle().clone());
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 handle_urls_later(&handle, event.urls().iter().map(|u| u.to_string()).collect());

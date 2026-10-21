@@ -18,7 +18,9 @@ Source available under the [Business Source License 1.1](LICENSE): free for pers
 
 ## Install
 
-Build from source (macOS 13+, Rust, Node 20+):
+Download `txt-<version>.dmg` from [Releases](https://github.com/cxrobx/txt/releases/latest) and drag txt to Applications (macOS 13+, Apple Silicon). It's signed and notarized, and updates itself: it checks daily, installs in the background and asks before restarting. **txt → Check for Updates…** checks now.
+
+Or build from source (Rust, Node 20+):
 
 ```sh
 npm install
@@ -29,6 +31,8 @@ cp -R src-tauri/target/release/bundle/macos/txt.app /Applications/
 The first time txt opens, macOS asks whether it may use your Documents folder; that's where the notes are kept.
 
 ### Alfred
+
+Each release carries `txt.alfredworkflow`; open it to install. Or build it:
 
 ```sh
 python3 integrations/alfred/build.py   # writes dist/txt.alfredworkflow

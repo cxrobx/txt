@@ -49,6 +49,14 @@ LSR=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.
 $LSR -u src-tauri/target/release/bundle/macos/txt.app; $LSR -f /Applications/txt.app
 ```
 
+## Releasing
+
+`scripts/release.sh X.Y.Z` builds, signs (Developer ID), notarizes (keychain profile `DiskSight`) and staples into `release/X.Y.Z/`; add `--publish` to tag, upload to GitHub Releases and run `scripts/verify-update-feed.sh`. Bump `package.json`, `package-lock.json`, `tauri.conf.json` and `Cargo.toml` first; it refuses a dirty tree or a used tag.
+
+- **Updates:** `tauri-plugin-updater` reads `releases/latest/download/latest.json` a minute after launch, then daily, and from txt → Check for Updates… (`src/update.rs`). It installs in place and asks before restarting; the restart closes each window first so it saves. Apple Silicon only.
+- **The updater key is `~/.tauri/txt.key`** (no password), backed up as secret `TAURI_SIGNING_PRIVATE_KEY_TXT`. Losing it strands every installed copy. `release.sh` refuses to build if `plugins.updater.pubkey` differs from `txt.key.pub`: a wrong pubkey still builds and publishes, and every install silently rejects every update.
+- The update tarball is made **after** stapling, by the script, not by Tauri's `createUpdaterArtifacts` (which would pack the unstapled app, and makes every local build demand the key).
+
 ## Landmines
 
 - **Never build a window inside a link callback.** `on_open_url` and the single-instance callback run inside Tauri's event dispatch, which holds the lock that `WebviewWindowBuilder::build` needs. On a cold launch from `txt://new`, the app hung with no window. Go through `handle_urls_later`.
