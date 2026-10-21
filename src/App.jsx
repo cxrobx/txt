@@ -209,7 +209,12 @@ export default function App() {
       for (const tab of tabsRef.current.filter(t => t.id === payload.id && t.status === 'saved' && !pending.current[t.key])) {
         try {
           const doc = await api.read(tab.id);
-          if (doc.modified !== tab.modified) update(tab.key, { body: doc.body, title: doc.title, titleSource: doc.title_source, modified: doc.modified, loadKey: tab.loadKey + 1 });
+          if (doc.modified === tab.modified) continue;
+          // An auto title changes only the front matter: keep the editor (and
+          // its caret and undo history) when the text is what's on screen.
+          const current = tabByKey(tab.key);
+          if (doc.body === current.body) update(tab.key, { title: doc.title, titleSource: doc.title_source, modified: doc.modified });
+          else update(tab.key, { body: doc.body, title: doc.title, titleSource: doc.title_source, modified: doc.modified, loadKey: current.loadKey + 1 });
         } catch { update(tab.key, { status: 'error', error: 'This note was moved or deleted.' }); }
       }
     });

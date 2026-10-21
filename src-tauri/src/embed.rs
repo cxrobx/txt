@@ -8,6 +8,7 @@
 //! reachable model nothing is marked done and search stays keyword-only.
 
 use crate::notes::Store;
+use crate::titles::{self, TitleConfig};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -15,7 +16,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 const BATCH: usize = 32;
 /// A related note must score within this much of the best match, and above
@@ -36,6 +37,8 @@ pub struct Config {
     pub model: String,
     #[serde(default = "default_idle")]
     pub idle_secs: u64,
+    #[serde(default)]
+    pub titles: TitleConfig,
 }
 fn default_url() -> String {
     "http://127.0.0.1:11434".into()
@@ -87,6 +90,7 @@ pub struct Status {
     pub indexed: usize,
     pub total: usize,
     pub error: Option<String>,
+    pub titles_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -111,7 +115,8 @@ impl Index {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, hash TEXT NOT NULL, model TEXT NOT NULL);
-             CREATE TABLE IF NOT EXISTS chunks (id TEXT NOT NULL, idx INTEGER NOT NULL, text TEXT NOT NULL, vec BLOB NOT NULL, PRIMARY KEY (id, idx));",
+             CREATE TABLE IF NOT EXISTS chunks (id TEXT NOT NULL, idx INTEGER NOT NULL, text TEXT NOT NULL, vec BLOB NOT NULL, PRIMARY KEY (id, idx));
+             CREATE TABLE IF NOT EXISTS titles (id TEXT PRIMARY KEY, len INTEGER NOT NULL);",
         )
         .expect("create index tables");
         let status = Status { model: cfg.model.clone(), ..Default::default() };
@@ -152,15 +157,66 @@ impl Index {
         Ok(reply.embeddings.into_iter().map(normalize).collect())
     }
 
+    /// Titles the notes that want one (see `titles::wants_title`), skipping
+    /// any still being edited. Stops at the first error: if the model isn't
+    /// there, one failed request per batch is the whole cost.
+    fn retitle(&self, store: &Store, recent: &HashSet<String>, on_title: &dyn Fn(&str)) {
+        let cfg = &self.cfg.titles;
+        if !cfg.enabled {
+            return;
+        }
+        let titled: HashMap<String, usize> = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare("SELECT id, len FROM titles").unwrap();
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize))).unwrap();
+            rows.flatten().collect()
+        };
+        let mut used = false;
+        let mut error = None;
+        for (meta, body) in store.all() {
+            let len = body.trim().chars().count();
+            if recent.contains(&meta.id) || !titles::wants_title(&meta.title_source, len, titled.get(&meta.id).copied()) {
+                continue;
+            }
+            used = true;
+            match titles::generate(cfg, &body) {
+                Ok(title) => {
+                    // Refused if you edited or titled the note meanwhile; it's
+                    // simply looked at again next batch.
+                    if store.set_auto_title(&meta.id, &title, meta.modified).is_ok() {
+                        let _ = self.conn.lock().unwrap().execute(
+                            "INSERT INTO titles (id, len) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET len = ?2",
+                            params![meta.id, len as i64],
+                        );
+                        on_title(&meta.id);
+                    }
+                }
+                Err(e) => {
+                    error = Some(e);
+                    break;
+                }
+            }
+        }
+        if used && error.is_none() {
+            titles::unload(cfg);
+        }
+        if used {
+            self.status.lock().unwrap().titles_error = error;
+        }
+    }
+
     /// Brings the index in line with the folder. Notes edited in the last
     /// `idle_secs` wait (unless `all`), so typing never wakes the model.
-    pub fn sync(&self, store: &Store, all: bool) {
+    pub fn sync(&self, store: &Store, all: bool, on_title: &dyn Fn(&str)) {
         let idle = Duration::from_secs(self.cfg.idle_secs);
         let recent: HashSet<String> = if all {
             HashSet::new()
         } else {
             self.edits.lock().unwrap().iter().filter(|(_, t)| t.elapsed() < idle).map(|(id, _)| id.clone()).collect()
         };
+        // Titles first: the title is part of what gets embedded, so titling
+        // afterwards would embed each newly titled note twice.
+        self.retitle(store, &recent, on_title);
         let docs = store.all();
         let known: HashMap<String, (String, String)> = {
             let conn = self.conn.lock().unwrap();
@@ -301,7 +357,11 @@ pub fn run(app: AppHandle) {
         };
         let rescan = last_scan.map(|t| t.elapsed() >= RESCAN).unwrap_or(true);
         if flush || settled || rescan {
-            index.sync(&store, flush);
+            // Open windows refresh the title in their tabs and switcher.
+            let notify = |id: &str| {
+                let _ = app.emit("notes-changed", serde_json::json!({ "id": id, "by": "titler" }));
+            };
+            index.sync(&store, flush, &notify);
             last_scan = Some(Instant::now());
         }
     }

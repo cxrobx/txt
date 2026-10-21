@@ -11,6 +11,7 @@ Source available under the [Business Source License 1.1](LICENSE): free for pers
 - **Markdown that renders as you type.** Headings, lists, checklists, quotes, code, tables and links. Select text for a formatting toolbar; ⌘K adds a link, and ⌘-click follows one. The editor comes from [Margin Notes](https://github.com/cxrobx/Margin).
 - **Plain files.** Notes live in `~/Documents/scratchpad` as `.md` files with a small front-matter block (`id`, `title`). Older `.txt` files open as plain text and are saved back exactly as typed, never converted to Markdown.
 - **Search by meaning (optional).** With a local embedding model running, ⌘P also lists notes *related* to what you typed, not just ones containing the words. See [Meaning search](#meaning-search).
+- **Titles that write themselves (optional).** A note you haven't titled gets a short title from a small local model, written once the note has some text and refreshed only if it roughly doubles. Your own titles are never replaced, and nothing leaves your Mac.
 - **Links that don't break.** `txt://note/<id>` opens a note (File → Copy Link to Note, ⇧⌘C). Renaming a note or its file doesn't break the link. `txt://new?name=…` opens a new named note.
 
 ## Install
@@ -51,6 +52,16 @@ To use a different model or server, create `~/Library/Application Support/com.cx
 ```
 
 `model` can be any embedding model the server offers; EmbeddingGemma and `nomic-embed-text` get their recommended task prefixes. Changing it re-embeds every note.
+
+## Auto titles
+
+With Ollama running and `ollama pull llama3.2`, txt titles untitled notes in the same background batches as meaning search. The model is unloaded as soon as each batch finishes. A `.txt` note's title is stored in txt's index, so its file is never rewritten; a `.md` note's goes in its front matter as `title:` with `auto_title: true`. Type a title yourself to replace it for good.
+
+Settings go under `titles` in the same `config.json`:
+
+```json
+{ "titles": { "enabled": true, "url": "http://127.0.0.1:11434", "model": "llama3.2" } }
+```
 
 ## Develop
 

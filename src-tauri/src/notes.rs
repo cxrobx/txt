@@ -144,6 +144,7 @@ impl Store {
             (first_line_title(body), "derived".to_string())
         };
 
+        let preview = preview(body, title_source == "derived");
         let meta = NoteMeta {
             id,
             file,
@@ -152,7 +153,8 @@ impl Store {
             title,
             title_source,
             modified,
-            preview: preview(body),
+            // A derived title is the first line; don't repeat it underneath.
+            preview,
         };
         Some((meta, body.to_string()))
     }
@@ -250,6 +252,30 @@ impl Store {
         Ok(self.read(id)?.meta)
     }
 
+    /// Sets a model-written title without touching the note's text. Refused if
+    /// the file changed since `expected_modified`, or if you've since given the
+    /// note a title of your own.
+    pub fn set_auto_title(&self, id: &str, title: &str, expected_modified: u64) -> Result<NoteMeta, String> {
+        let doc = self.read(id)?;
+        if doc.meta.modified != expected_modified {
+            return Err("conflict: the note changed while it was being titled".into());
+        }
+        if doc.meta.title_source == "manual" {
+            return Err("the note has a title of its own".into());
+        }
+        if doc.meta.kind == "md" {
+            return self.save(id, &doc.body, Some(title.to_string()), true, Some(expected_modified));
+        }
+        {
+            let mut index = self.index.lock().unwrap();
+            let entry = index.files.entry(doc.meta.file.clone()).or_insert_with(|| Entry { id: id.to_string(), ..Default::default() });
+            entry.title = Some(title.to_string());
+            entry.title_source = Some("auto".into());
+            self.save_index(&index);
+        }
+        Ok(self.read(id)?.meta)
+    }
+
     pub fn create(&self, name: Option<String>) -> Result<NoteDoc, String> {
         let id = uuid::Uuid::new_v4().to_string();
         let title = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
@@ -330,8 +356,8 @@ fn first_line_title(body: &str) -> String {
     truncate(&line, 60)
 }
 
-fn preview(body: &str) -> String {
-    let text = body.lines().map(clean_line).filter(|l| !l.is_empty()).skip(1).collect::<Vec<_>>().join(" · ");
+fn preview(body: &str, skip_first: bool) -> String {
+    let text = body.lines().map(clean_line).filter(|l| !l.is_empty()).skip(skip_first as usize).collect::<Vec<_>>().join(" · ");
     truncate(&text, 140)
 }
 
@@ -490,6 +516,28 @@ mod tests {
         assert_eq!(s.read(&hits[0].id).unwrap().meta.title, "zebra notes", "title hits rank first");
         assert!(hits[1].snippet.contains("Zebra crossing"), "{}", hits[1].snippet);
         assert!(s.keyword_search("zebra missing", 10).is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn auto_title_never_rewrites_text_or_beats_a_manual_title() {
+        let (s, root) = store();
+        let path = s.dir.join("Untitled-01C8BB7D-6901-474B-9FC6-DE05756B13AE.txt");
+        fs::write(&path, "  raw *text*\n").unwrap();
+        let id = "01c8bb7d-6901-474b-9fc6-de05756b13ae";
+        let before = s.read(id).unwrap().meta;
+        let meta = s.set_auto_title(id, "Raw Text Note", before.modified).unwrap();
+        assert_eq!((meta.title.as_str(), meta.title_source.as_str()), ("Raw Text Note", "auto"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "  raw *text*\n");
+        assert!(s.set_auto_title(id, "x", before.modified + 1).unwrap_err().starts_with("conflict"));
+
+        let doc = s.create(Some("Mine".into())).unwrap();
+        assert!(s.set_auto_title(&doc.meta.id, "Theirs", doc.meta.modified).is_err());
+        let md = s.create(None).unwrap();
+        let saved = s.save(&md.meta.id, "# body\n\ntext", None, false, None).unwrap();
+        let meta = s.set_auto_title(&md.meta.id, "Body Text", saved.modified).unwrap();
+        assert_eq!(meta.title_source, "auto");
+        assert_eq!(s.read(&md.meta.id).unwrap().body, "# body\n\ntext");
         fs::remove_dir_all(root).unwrap();
     }
 

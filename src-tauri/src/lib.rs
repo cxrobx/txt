@@ -1,5 +1,6 @@
 mod embed;
 mod notes;
+mod titles;
 
 use embed::{Hit, Index, Status};
 use notes::{KeywordHit, NoteDoc, NoteMeta, Store};
