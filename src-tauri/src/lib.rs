@@ -1,5 +1,6 @@
-mod embed;
-mod notes;
+pub mod embed;
+pub mod mcp;
+pub mod notes;
 mod titles;
 
 use embed::{Hit, Index, Status};
@@ -281,10 +282,17 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     Menu::with_items(app, &[&app_menu, &file, &edit, &window])
 }
 
-pub fn run() {
+/// The notes folder and the support folder (index, embeddings, config), shared
+/// by the app and `txt-mcp`.
+pub fn dirs() -> (std::path::PathBuf, std::path::PathBuf) {
     let home = dirs::home_dir().expect("home folder");
     let notes_dir = std::env::var("TXT_NOTES_DIR").map(Into::into).unwrap_or_else(|_| home.join("Documents/scratchpad"));
     let support = std::env::var("TXT_SUPPORT_DIR").map(Into::into).unwrap_or_else(|_| home.join("Library/Application Support/com.cx.txt"));
+    (notes_dir, support)
+}
+
+pub fn run() {
+    let (notes_dir, support) = dirs();
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _| {

@@ -13,6 +13,7 @@ Tauri 2 (Rust) + React + Tiptap. The editor is lifted from [Margin Notes](https:
 | `src/App.jsx` | One window: tabs, saving, menu commands |
 | `src-tauri/src/embed.rs` | Meaning search: the batch worker, `index.db`, per-model prefixes, the score cut-off |
 | `src-tauri/src/titles.rs` | Auto titles: when a note gets one, the prompt, cleaning the model's answer |
+| `src-tauri/src/mcp.rs` | The MCP tools; `src/bin/txt-mcp.rs` is its stdio entry point, bundled as `Contents/MacOS/txt-mcp` |
 | `src/Switcher.jsx` | ⌘P: keyword hits at once, "Related" (meaning) hits after a 400 ms pause |
 | `src/editor/` | Margin's editor, minus attachments, plus `txt://` links and ⌘-click |
 | `integrations/alfred/` | The Alfred workflow: `txt-open.sh` (the script) and `build.py` (writes `dist/txt.alfredworkflow`) |
@@ -54,4 +55,8 @@ $LSR -u src-tauri/target/release/bundle/macos/txt.app; $LSR -f /Applications/txt
 - **Menu commands use `emit_to(label)`, never `emit`.** `emit` reaches every window, so ⌘W closed a tab in every window.
 - **File commands are `async`.** Tauri runs plain commands on the main thread, and the first read of `~/Documents` waits for the macOS privacy prompt, which froze every window until it was answered.
 - **Two bundles registered for `txt://`.** LaunchServices learns about the build folder's `txt.app` too, and can route links there. Unregister it after every build (the `-u` line above).
+- **Two processes write `index.json`:** the app and `txt-mcp`. `Store::index()` re-reads the file whenever its mtime isn't the one this process last saw, so neither saves over the other's ids. Always lock through `index()`, never `self.index.lock()` directly. The test `two_processes_never_drop_each_others_index_entries` guards this.
+- **`txt-mcp` has no delete or replace tool, on purpose.** `append_note` saves with the `modified` it read, so a simultaneous edit in txt is refused rather than overwritten.
+- **`scripts/build-mcp.sh` stages a placeholder first.** `txt-mcp` is in the app's own crate, and tauri-build won't compile that crate until `binaries/txt-mcp-<triple>` exists.
+- The installed `/Applications/txt.app/Contents/MacOS/txt-mcp` is a live MCP registration: reinstalling the app replaces it, and deleting the app breaks it.
 - Each rebuild is ad-hoc signed with a new signature, so macOS may ask about Documents again after a reinstall.

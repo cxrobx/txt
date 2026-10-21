@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::UNIX_EPOCH;
 
 #[derive(Default, Serialize, Deserialize)]
@@ -57,7 +57,26 @@ pub struct KeywordHit {
 pub struct Store {
     pub dir: PathBuf,
     index_path: PathBuf,
-    index: Mutex<Index>,
+    index: Mutex<Loaded>,
+}
+
+/// The index as last read or written by this process. The app and `txt-mcp`
+/// both write `index.json`, so a copy whose file changed underneath it is
+/// re-read before use; otherwise one would save over the other's entries.
+struct Loaded {
+    index: Index,
+    stamp: u64,
+}
+impl std::ops::Deref for Loaded {
+    type Target = Index;
+    fn deref(&self) -> &Index {
+        &self.index
+    }
+}
+impl std::ops::DerefMut for Loaded {
+    fn deref_mut(&mut self) -> &mut Index {
+        &mut self.index
+    }
 }
 
 struct FrontMatter {
@@ -75,23 +94,30 @@ impl Store {
         let _ = fs::create_dir_all(&dir);
         let _ = fs::create_dir_all(&support);
         let index_path = support.join("index.json");
-        let index = fs::read_to_string(&index_path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        Store { dir, index_path, index: Mutex::new(index) }
+        let loaded = Loaded { index: read_index(&index_path), stamp: mtime(&index_path) };
+        Store { dir, index_path, index: Mutex::new(loaded) }
     }
 
-    fn save_index(&self, index: &Index) {
-        if let Ok(json) = serde_json::to_string_pretty(index) {
+    fn index(&self) -> MutexGuard<'_, Loaded> {
+        let mut loaded = self.index.lock().unwrap();
+        let stamp = mtime(&self.index_path);
+        if stamp != loaded.stamp {
+            *loaded = Loaded { index: read_index(&self.index_path), stamp };
+        }
+        loaded
+    }
+
+    fn save_index(&self, loaded: &mut Loaded) {
+        if let Ok(json) = serde_json::to_string_pretty(&loaded.index) {
             let _ = write_atomic(&self.index_path, &json);
+            loaded.stamp = mtime(&self.index_path);
         }
     }
 
     pub fn list(&self) -> Vec<NoteMeta> {
         let mut out = Vec::new();
         let Ok(entries) = fs::read_dir(&self.dir) else { return out };
-        let mut index = self.index.lock().unwrap();
+        let mut index = self.index();
         let mut dirty = false;
         for entry in entries.flatten() {
             let path = entry.path();
@@ -100,7 +126,7 @@ impl Store {
             }
         }
         if dirty {
-            self.save_index(&index);
+            self.save_index(&mut index);
         }
         out.sort_by(|a, b| b.modified.cmp(&a.modified));
         out
@@ -108,7 +134,7 @@ impl Store {
 
     /// Reads one file and works out its id and title. Returns the body with any
     /// front matter removed.
-    fn meta_for(&self, path: &Path, index: &mut Index, dirty: &mut bool) -> Option<(NoteMeta, String)> {
+    fn meta_for(&self, path: &Path, index: &mut Loaded, dirty: &mut bool) -> Option<(NoteMeta, String)> {
         let file = path.file_name()?.to_str()?.to_string();
         let ext = path.extension()?.to_str()?.to_ascii_lowercase();
         if file.starts_with('.') || !KINDS.contains(&ext.as_str()) || !path.is_file() {
@@ -161,12 +187,12 @@ impl Store {
 
     /// Every note with its body (front matter removed).
     pub fn all(&self) -> Vec<(NoteMeta, String)> {
-        let mut index = self.index.lock().unwrap();
+        let mut index = self.index();
         let mut dirty = false;
         let Ok(entries) = fs::read_dir(&self.dir) else { return vec![] };
         let mut out: Vec<_> = entries.flatten().filter_map(|e| self.meta_for(&e.path(), &mut index, &mut dirty)).collect();
         if dirty {
-            self.save_index(&index);
+            self.save_index(&mut index);
         }
         out.sort_by(|a, b| b.0.modified.cmp(&a.0.modified));
         out
@@ -207,11 +233,11 @@ impl Store {
 
     pub fn read(&self, id: &str) -> Result<NoteDoc, String> {
         let path = self.find(id)?;
-        let mut index = self.index.lock().unwrap();
+        let mut index = self.index();
         let mut dirty = false;
         let (meta, body) = self.meta_for(&path, &mut index, &mut dirty).ok_or("Unreadable note")?;
         if dirty {
-            self.save_index(&index);
+            self.save_index(&mut index);
         }
         Ok(NoteDoc { meta, body })
     }
@@ -241,12 +267,12 @@ impl Store {
         } else {
             write_atomic(&path, body).map_err(|e| e.to_string())?;
             if let Some(t) = title {
-                let mut index = self.index.lock().unwrap();
+                let mut index = self.index();
                 let entry = index.files.entry(file).or_insert_with(|| Entry { id: id.to_string(), ..Default::default() });
                 let t = t.trim().to_string();
                 entry.title_source = if t.is_empty() { None } else { Some(if auto { "auto" } else { "manual" }.into()) };
                 entry.title = if t.is_empty() { None } else { Some(t) };
-                self.save_index(&index);
+                self.save_index(&mut index);
             }
         }
         Ok(self.read(id)?.meta)
@@ -267,11 +293,11 @@ impl Store {
             return self.save(id, &doc.body, Some(title.to_string()), true, Some(expected_modified));
         }
         {
-            let mut index = self.index.lock().unwrap();
+            let mut index = self.index();
             let entry = index.files.entry(doc.meta.file.clone()).or_insert_with(|| Entry { id: id.to_string(), ..Default::default() });
             entry.title = Some(title.to_string());
             entry.title_source = Some("auto".into());
-            self.save_index(&index);
+            self.save_index(&mut index);
         }
         Ok(self.read(id)?.meta)
     }
@@ -304,6 +330,10 @@ impl Store {
         }
         fs::rename(&path, &dest).map_err(|e| e.to_string())
     }
+}
+
+fn read_index(path: &Path) -> Index {
+    fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 fn mtime(path: &Path) -> u64 {
@@ -538,6 +568,24 @@ mod tests {
         let meta = s.set_auto_title(&md.meta.id, "Body Text", saved.modified).unwrap();
         assert_eq!(meta.title_source, "auto");
         assert_eq!(s.read(&md.meta.id).unwrap().body, "# body\n\ntext");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn two_processes_never_drop_each_others_index_entries() {
+        let (a, root) = store();
+        let b = Store::new(a.dir.clone(), root.join("support"));
+        fs::write(a.dir.join("one.txt"), "first").unwrap();
+        let one = a.list()[0].id.clone();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        fs::write(a.dir.join("two.txt"), "second").unwrap();
+        let ids: Vec<String> = b.list().into_iter().map(|n| n.id).collect();
+        assert!(ids.contains(&one), "b re-read a's entry instead of minting a new id");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let two = ids.into_iter().find(|i| *i != one).unwrap();
+        b.save(&two, "second", Some("Two".into()), false, None).unwrap();
+        assert_eq!(a.read(&two).unwrap().meta.title, "Two");
+        assert_eq!(a.read(&one).unwrap().meta.id, one);
         fs::remove_dir_all(root).unwrap();
     }
 

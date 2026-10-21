@@ -3,11 +3,20 @@ name = "txt"
 version = "0.1.0"
 description = "Quick notes, one keystroke away"
 edition = "2021"
+default-run = "txt"
 license = "BUSL-1.1"
 
 [lib]
 name = "txt_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "txt"
+path = "src/main.rs"
+
+[[bin]]
+name = "txt-mcp"
+path = "src/bin/txt-mcp.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -23,3 +32,6 @@ dirs = "6"
 url = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 ureq = { version = "2", features = ["json"] }
+rmcp = { version = "1", features = ["server", "macros", "transport-io"] }
+schemars = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }

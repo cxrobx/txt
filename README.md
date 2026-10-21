@@ -63,6 +63,14 @@ Settings go under `titles` in the same `config.json`:
 { "titles": { "enabled": true, "url": "http://127.0.0.1:11434", "model": "qwen3.5:4b" } }
 ```
 
+## MCP
+
+`txt.app` ships an MCP server, so an agent can find and add to your notes. It has six tools: `search_notes` (words, plus meaning when the embedding model runs), `list_notes`, `read_note`, `create_note`, `append_note` and `note_link`. Nothing it does deletes or replaces text. For Claude Code:
+
+```sh
+claude mcp add --scope user txt /Applications/txt.app/Contents/MacOS/txt-mcp
+```
+
 ## Develop
 
 ```sh
