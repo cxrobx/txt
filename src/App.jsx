@@ -206,13 +206,17 @@ export default function App() {
     const offChanged = listen('notes-changed', async ({ payload }) => {
       refreshNotes();
       if (payload.by === appWindow.label) return;
-      for (const tab of tabsRef.current.filter(t => t.id === payload.id && t.status === 'saved' && !pending.current[t.key])) {
+      // Only tabs with nothing unsaved: one you're typing in keeps your text,
+      // and its next save gets the conflict banner instead.
+      const clean = t => t && t.status === 'saved' && !pending.current[t.key] && !inflight.current[t.key];
+      for (const tab of tabsRef.current.filter(t => t.id === payload.id && clean(t))) {
         try {
           const doc = await api.read(tab.id);
-          if (doc.modified === tab.modified) continue;
+          const current = tabByKey(tab.key);
+          // Checked again: you may have typed while the file was being read.
+          if (!clean(current) || doc.modified === current.modified) continue;
           // An auto title changes only the front matter: keep the editor (and
           // its caret and undo history) when the text is what's on screen.
-          const current = tabByKey(tab.key);
           if (doc.body === current.body) update(tab.key, { title: doc.title, titleSource: doc.title_source, modified: doc.modified });
           else update(tab.key, { body: doc.body, title: doc.title, titleSource: doc.title_source, modified: doc.modified, loadKey: current.loadKey + 1 });
         } catch { update(tab.key, { status: 'error', error: 'This note was moved or deleted.' }); }

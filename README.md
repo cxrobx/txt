@@ -12,6 +12,7 @@ Source available under the [Business Source License 1.1](LICENSE): free for pers
 - **Plain files.** Notes live in `~/Documents/scratchpad` as `.md` files with a small front-matter block (`id`, `title`). Older `.txt` files open as plain text and are saved back exactly as typed, never converted to Markdown.
 - **Search by meaning (optional).** With a local embedding model running, ⌘P also lists notes *related* to what you typed, not just ones containing the words. See [Meaning search](#meaning-search).
 - **Titles that write themselves (optional).** A note you haven't titled gets a short title from a small local model, written once the note has some text and refreshed only if it roughly doubles. Your own titles are never replaced, and nothing leaves your Mac.
+- **Live reload.** An edit made outside txt (an agent through the MCP, another editor, a sync) shows up in open tabs within a second. A tab you're typing in keeps your text and asks before loading theirs.
 - **Links that don't break.** `txt://note/<id>` opens a note (File → Copy Link to Note, ⇧⌘C). Renaming a note or its file doesn't break the link. `txt://new?name=…` opens a new named note.
 
 ## Install

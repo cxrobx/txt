@@ -185,6 +185,20 @@ impl Store {
         Some((meta, body.to_string()))
     }
 
+    /// File name → modified time for every note file, without reading any.
+    pub fn stamps(&self) -> HashMap<String, u64> {
+        let Ok(entries) = fs::read_dir(&self.dir) else { return HashMap::new() };
+        entries
+            .flatten()
+            .filter_map(|e| {
+                let path = e.path();
+                let file = path.file_name()?.to_str()?.to_string();
+                let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+                (!file.starts_with('.') && KINDS.contains(&ext.as_str())).then(|| (file, mtime(&path)))
+            })
+            .collect()
+    }
+
     /// Every note with its body (front matter removed).
     pub fn all(&self) -> Vec<(NoteMeta, String)> {
         let mut index = self.index();
@@ -586,6 +600,16 @@ mod tests {
         b.save(&two, "second", Some("Two".into()), false, None).unwrap();
         assert_eq!(a.read(&two).unwrap().meta.title, "Two");
         assert_eq!(a.read(&one).unwrap().meta.id, one);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stamps_see_note_files_only() {
+        let (s, root) = store();
+        fs::write(s.dir.join("a.txt"), "x").unwrap();
+        fs::write(s.dir.join(".a.txt.tmp"), "x").unwrap();
+        fs::write(s.dir.join("pic.png"), "x").unwrap();
+        assert_eq!(s.stamps().keys().collect::<Vec<_>>(), vec!["a.txt"]);
         fs::remove_dir_all(root).unwrap();
     }
 

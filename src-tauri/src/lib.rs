@@ -25,6 +25,40 @@ fn changed(app: &AppHandle, id: &str, by: &str) {
     let _ = app.emit("notes-changed", Changed { id: id.into(), by: by.into() });
 }
 
+/// Notices edits made outside this app (an agent through txt-mcp, another
+/// editor, a sync) and tells open windows, which reload any tab with nothing
+/// unsaved. Polls modified times once a second: ~150 `stat` calls, no reads,
+/// and no extra dependency. Saves from txt itself show up here too, and are
+/// ignored by the windows because the tab already has that modified time.
+fn watch(app: AppHandle) {
+    let store = app.state::<Store>();
+    let mut seen = store.stamps();
+    // File name → id, so a deleted file can still be named to the windows.
+    let mut ids: std::collections::HashMap<String, String> = store.list().into_iter().map(|n| (n.file, n.id)).collect();
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let now = store.stamps();
+        let moved: Vec<String> = now
+            .iter()
+            .filter(|(f, t)| seen.get(*f) != Some(t))
+            .map(|(f, _)| f.clone())
+            .chain(seen.keys().filter(|f| !now.contains_key(*f)).cloned())
+            .collect();
+        seen = now;
+        if moved.is_empty() {
+            continue;
+        }
+        let fresh: std::collections::HashMap<String, String> = store.list().into_iter().map(|n| (n.file, n.id)).collect();
+        for file in moved {
+            if let Some(id) = fresh.get(&file).or_else(|| ids.get(&file)) {
+                app.state::<Index>().touch(id);
+                changed(&app, id, "disk");
+            }
+        }
+        ids = fresh;
+    }
+}
+
 // File commands are async so Tauri runs them off the main thread: a slow disk
 // or a macOS privacy prompt for ~/Documents must not freeze every window.
 #[tauri::command]
@@ -327,6 +361,8 @@ pub fn run() {
         .setup(|app| {
             let worker = app.handle().clone();
             std::thread::spawn(move || embed::run(worker));
+            let watcher = app.handle().clone();
+            std::thread::spawn(move || watch(watcher));
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 handle_urls_later(&handle, event.urls().iter().map(|u| u.to_string()).collect());
