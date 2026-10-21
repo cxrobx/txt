@@ -55,12 +55,12 @@ To use a different model or server, create `~/Library/Application Support/com.cx
 
 ## Auto titles
 
-With Ollama running and `ollama pull llama3.2`, txt titles untitled notes in the same background batches as meaning search. The model is unloaded as soon as each batch finishes. A `.txt` note's title is stored in txt's index, so its file is never rewritten; a `.md` note's goes in its front matter as `title:` with `auto_title: true`. Type a title yourself to replace it for good.
+With Ollama running and `ollama pull qwen3.5:4b`, txt titles untitled notes in the same background batches as meaning search. The model is unloaded as soon as each batch finishes. A `.txt` note's title is stored in txt's index, so its file is never rewritten; a `.md` note's goes in its front matter as `title:` with `auto_title: true`. Type a title yourself to replace it for good.
 
 Settings go under `titles` in the same `config.json`:
 
 ```json
-{ "titles": { "enabled": true, "url": "http://127.0.0.1:11434", "model": "llama3.2" } }
+{ "titles": { "enabled": true, "url": "http://127.0.0.1:11434", "model": "qwen3.5:4b" } }
 ```
 
 ## Develop

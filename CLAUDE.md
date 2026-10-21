@@ -32,7 +32,8 @@ Tauri 2 (Rust) + React + Tiptap. The editor is lifted from [Margin Notes](https:
 - A model that can't be reached leaves notes unmarked, so they retry next batch. Search then shows keyword hits only, and the switcher footer says so.
 - Empty notes are recorded with no chunks. Their vector is just the title, which scored 0.63–0.68 against every query and crowded out real matches.
 - **Auto titles run in the same batch, before embedding**, because the title is part of what's embedded. Only `derived` notes with ≥40 characters get one; an `auto` title is redone only once the note doubles (`titles` table keeps the length it was titled at). `manual` is never touched, and `Store::set_auto_title` refuses if the file changed since it was read.
-- **Title model memory:** `num_ctx: 4096` is load-bearing. Ollama's default context put llama3.2 at 10 GB; 4k is 2.6 GB. The batch ends with a `keep_alive: 0` unload.
+- **Title model memory:** `num_ctx: 4096` is load-bearing. Ollama's default context put llama3.2 at 10 GB; at 4k the default `qwen3.5:4b` is 4.1 GB (llama3.2 2.6 GB). The batch ends with a `keep_alive: 0` unload.
+- **`think: false` is load-bearing too.** With thinking on, qwen3.5 spends the 24-token budget reasoning and the title comes back empty. A model without thinking accepts the field.
 - An auto title rewrites only the front matter. Open windows then update the tab's title without remounting the editor, so the caret and undo history survive (`notes-changed` handler in `App.jsx`).
 - The cut-off (`SPREAD` 0.12 below the best match, `FLOOR` 0.60) was calibrated on EmbeddingGemma 2. Another model may need it re-measured.
 

@@ -1,10 +1,11 @@
 //! Model-written titles for notes you haven't titled yourself.
 //!
 //! A small local text model behind Ollama's `/api/generate` (default
-//! `llama3.2`), run in the embedding worker's batches. Note text never leaves
-//! the machine. Two settings keep it light: a 4k context (Ollama's default
-//! sized llama3.2 at 10 GB; 4k is 2.6 GB, measured 2026-10-21), and an unload
-//! request once the batch is done, so the model is only in memory for seconds.
+//! `qwen3.5:4b`, thinking off), run in the embedding worker's batches. Note
+//! text never leaves the machine. Two settings keep it light: a 4k context
+//! (Ollama's default sized llama3.2 at 10 GB; at 4k llama3.2 is 2.6 GB and
+//! qwen3.5:4b 4.1 GB, measured 2026-10-21), and an unload request once the
+//! batch is done, so the model is only in memory for seconds.
 
 use serde::Deserialize;
 use std::time::Duration;
@@ -29,7 +30,7 @@ fn default_url() -> String {
     "http://127.0.0.1:11434".into()
 }
 fn default_model() -> String {
-    "llama3.2".into()
+    "qwen3.5:4b".into()
 }
 impl Default for TitleConfig {
     fn default() -> Self {
@@ -67,7 +68,9 @@ pub fn generate(cfg: &TitleConfig, body: &str) -> Result<String, String> {
     let reply: Reply = agent(Duration::from_secs(120))
         .post(&format!("{}/api/generate", cfg.url.trim_end_matches('/')))
         .send_json(serde_json::json!({
-            "model": cfg.model, "prompt": prompt, "stream": false, "keep_alive": "30s",
+            // `think: false`: qwen3.5 otherwise spends the whole 24-token budget
+            // reasoning and returns no title. Models without thinking accept it.
+            "model": cfg.model, "prompt": prompt, "stream": false, "keep_alive": "30s", "think": false,
             "options": { "temperature": 0.2, "num_predict": 24, "num_ctx": 4096 }
         }))
         .map_err(|e| format!("No title model at {} ({e})", cfg.url))?
