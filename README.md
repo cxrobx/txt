@@ -7,7 +7,8 @@ Source available under the [Business Source License 1.1](LICENSE): free for pers
 ## What it does
 
 - **New window, instantly.** `txt` opens a new note; `txt groceries` opens one titled "groceries". The app stays running with no windows open, so the next one appears at once. A window you close without typing leaves no file behind.
-- **Tabs and a switcher.** ⌘T opens a new tab, ⌘P finds a note by title or text. In the switcher, ↩ opens a note in this tab, ⌘↩ in a new tab, ⌥↩ in a new window. ⌘1–9 jump between tabs, and ⌘W closes one.
+- **Tabs and a switcher.** ⌘T opens a new tab, ⌘P finds a note by title or text. In the switcher, ↩ opens a note in this tab, ⌘↩ in a new tab, ⌥↩ in a new window. ⌘1–9 jump between tabs, and ⌘W closes one. Tabs shrink to fit; hovering a cut-off title widens it, drag a tab to reorder, and the ⌄ button lists them all.
+- **Recently closed.** With nothing typed, ⌘P lists the notes you closed lately, then the rest by last edit. ⌘⇧T reopens the last one closed, even after a restart.
 - **Markdown that renders as you type.** Headings, lists, checklists, quotes, code, tables and links. Select text for a formatting toolbar; ⌘K adds a link, and ⌘-click follows one. The editor comes from [Margin Notes](https://github.com/cxrobx/Margin).
 - **Plain files.** Notes live in `~/Documents/scratchpad` as `.md` files with a small front-matter block (`id`, `title`). Older `.txt` files open as plain text and are saved back exactly as typed, never converted to Markdown.
 - **Search by meaning (optional).** With a local embedding model running, ⌘P also lists notes *related* to what you typed, not just ones containing the words. See [Meaning search](#meaning-search).

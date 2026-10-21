@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FileText, Plus, Sparkles } from 'lucide-react';
+import { FileText, Plus, RotateCcw, Sparkles } from 'lucide-react';
 import { relativeTime } from './titles.mjs';
+import { recentRows } from './recents.mjs';
 
 const KEYWORD_DELAY = 80;
 // Meaning search may have to wake the model (a few seconds), so it waits for
 // a pause in typing and never blocks the keyword results above it.
 const SEMANTIC_DELAY = 400;
 
-export default function Switcher({ notes, openIds, api, onPick, onCreate, onClose }) {
+export default function Switcher({ notes, closed = [], openIds, api, onPick, onCreate, onClose }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const [keyword, setKeyword] = useState(null);
@@ -34,13 +35,17 @@ export default function Switcher({ notes, openIds, api, onPick, onCreate, onClos
 
   const rows = useMemo(() => {
     const q = query.trim();
-    if (!q) return notes.slice(0, 60).map(note => ({ note }));
+    if (!q) {
+      // Empty: notes closed lately, then the rest by last edit.
+      const recents = recentRows(notes, closed, openIds);
+      return [...recents.closed.map(r => ({ note: r.note, closedAt: r.closedAt })), ...recents.recent.map(note => ({ note, recent: true }))];
+    }
     const found = (keyword || []).map(h => byId.get(h.id) && { note: byId.get(h.id), snippet: h.snippet }).filter(Boolean);
     const seen = new Set(found.map(r => r.note.id));
     const related = semantic.hits.filter(h => !seen.has(h.id) && byId.get(h.id)).map(h => ({ note: byId.get(h.id), snippet: h.snippet, related: true }));
     // The create row sits above Related, so late-arriving related notes never move it.
     return [...found, { create: q }, ...related];
-  }, [query, keyword, semantic, notes, byId]);
+  }, [query, keyword, semantic, notes, byId, closed, openIds]);
 
   useEffect(() => { list.current?.querySelector('[aria-selected=true]')?.scrollIntoView({ block: 'nearest' }); }, [index]);
   const choose = (row, mode) => row.create ? onCreate(row.create) : onPick(row.note.id, mode);
@@ -52,6 +57,8 @@ export default function Switcher({ notes, openIds, api, onPick, onCreate, onClos
     else if (e.key === 'Enter' && rows[index]) { e.preventDefault(); choose(rows[index], e.altKey ? 'window' : e.metaKey ? 'tab' : 'here'); }
   };
   const firstRelated = rows.findIndex(r => r.related);
+  const firstClosed = rows.findIndex(r => r.closedAt);
+  const firstRecent = firstClosed < 0 ? -1 : rows.findIndex(r => r.recent);
   const meaning = !status ? '' : status.available || !status.error
     ? `Meaning search · ${status.indexed}/${status.total} notes`
     : 'Meaning search off: no embedding model running';
@@ -62,23 +69,25 @@ export default function Switcher({ notes, openIds, api, onPick, onCreate, onClos
       <ul ref={list} className="switcher-list" role="listbox">
         {rows.map((row, i) => <React.Fragment key={row.create ? 'create' : row.note.id}>
           {i === firstRelated && <li className="switcher-section" role="presentation">Related</li>}
+          {i === firstClosed && <li className="switcher-section" role="presentation">Recently closed</li>}
+          {i === firstRecent && <li className="switcher-section" role="presentation">Recent</li>}
           {row.create
             ? <li role="option" aria-selected={i === index} className="switcher-row create" onMouseEnter={() => setIndex(i)} onClick={() => choose(row)}>
                 <Plus size={14} /><span className="row-title">New note “{row.create}”</span>
               </li>
             : <li role="option" aria-selected={i === index} className="switcher-row" onMouseEnter={() => setIndex(i)} onClick={e => choose(row, e.altKey ? 'window' : e.metaKey ? 'tab' : 'here')}>
-                {row.related ? <Sparkles size={14} /> : <FileText size={14} />}
+                {row.related ? <Sparkles size={14} /> : row.closedAt ? <RotateCcw size={14} /> : <FileText size={14} />}
                 <span className="row-text">
                   <span className="row-title">{row.note.title}{openIds.has(row.note.id) && <em> · open</em>}</span>
                   {(row.snippet || row.note.preview) && <span className="row-preview">{row.snippet || row.note.preview}</span>}
                 </span>
-                <span className="row-meta">{row.note.kind === 'txt' && <b>txt</b>}{relativeTime(row.note.modified)}</span>
+                <span className="row-meta">{row.note.kind === 'txt' && <b>txt</b>}{row.closedAt ? `closed ${relativeTime(row.closedAt)}` : relativeTime(row.note.modified)}</span>
               </li>}
         </React.Fragment>)}
         {query.trim() && semantic.pending && <li className="switcher-section" role="presentation">Looking for related notes…</li>}
         {!rows.length && <li className="switcher-empty">No notes yet.</li>}
       </ul>
-      <footer className="switcher-hints"><span><kbd>↵</kbd> open here</span><span><kbd>⌘↵</kbd> new tab</span><span><kbd>⌥↵</kbd> new window</span><span className="hint-status" title={status?.error || ''}>{meaning}</span></footer>
+      <footer className="switcher-hints"><span><kbd>↵</kbd> open here</span><span><kbd>⌘↵</kbd> new tab</span><span><kbd>⌥↵</kbd> new window</span>{firstClosed >= 0 && <span><kbd>⌘⇧T</kbd> reopen</span>}<span className="hint-status" title={status?.error || ''}>{meaning}</span></footer>
     </div>
   </div>;
 }

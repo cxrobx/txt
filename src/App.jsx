@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { Plus, X, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import RichText from './editor/RichText.jsx';
 import { parseAppLink } from './editor/app-links.mjs';
 import Switcher from './Switcher.jsx';
+import TabBar from './TabBar.jsx';
 import { derivedTitle } from './titles.mjs';
 
 const appWindow = getCurrentWebviewWindow();
@@ -23,6 +24,9 @@ const api = {
   searchSemantic: query => invoke('search_semantic', { query }),
   embedStatus: () => invoke('embed_status'),
   flushEmbeddings: () => invoke('flush_embeddings'),
+  closed: () => invoke('closed_notes'),
+  recordClosed: ids => invoke('record_closed', { ids }),
+  forgetClosed: id => invoke('forget_closed', { id }),
 };
 const SAVE_DELAY = 600;
 let nextKey = 1;
@@ -42,6 +46,7 @@ export default function App() {
   const [activeKey, setActiveKey] = useState(null);
   const activeRef = useRef(null); activeRef.current = activeKey;
   const [notes, setNotes] = useState([]);
+  const [closed, setClosed] = useState([]);
   const [switcher, setSwitcher] = useState(false);
   const [toast, setToast] = useState(null);
   const pending = useRef({});
@@ -54,6 +59,9 @@ export default function App() {
   const tabByKey = key => tabsRef.current.find(t => t.key === key);
   const say = useCallback(message => { setToast(message); clearTimeout(say.timer); say.timer = setTimeout(() => setToast(null), 2600); }, []);
   const refreshNotes = useCallback(() => api.list().then(setNotes).catch(() => {}), []);
+  const refreshClosed = useCallback(() => api.closed().then(setClosed).catch(() => {}), []);
+  // Closed notes are one list for the whole app (closed.rs); every window hears `closed-changed`.
+  const recordClosed = tabs => { const ids = tabs.map(t => t?.id).filter(Boolean); if (ids.length) api.recordClosed(ids).catch(() => {}); };
 
   // ── Saving ────────────────────────────────────────────────────────────────
   // One pending write per tab; edits during a write queue behind it.
@@ -120,8 +128,10 @@ export default function App() {
     try { doc = await api.read(id); } catch (error) { return say(String(error)); }
     const tab = tabFromDoc(doc);
     const current = tabByKey(activeRef.current);
+    api.forgetClosed(id).catch(() => {});
     if (mode === 'here' && current) {
       await flush(current.key);
+      recordClosed([tabByKey(current.key)]);
       setTabs(all => all.map(t => t.key === current.key ? tab : t));
     } else if (isBlankDraft(current)) {
       setTabs(all => all.map(t => t.key === current.key ? tab : t));
@@ -130,8 +140,9 @@ export default function App() {
     }
     activate(tab.key);
   }, [flush, say]);
-  const closeTab = useCallback(async key => {
+  const closeTab = useCallback(async (key, { record = true } = {}) => {
     await flush(key);
+    if (record) recordClosed([tabByKey(key)]);
     const all = tabsRef.current;
     const index = all.findIndex(t => t.key === key);
     const rest = all.filter(t => t.key !== key);
@@ -139,6 +150,26 @@ export default function App() {
     setTabs(rest);
     if (activeRef.current === key) activate(rest[Math.min(index, rest.length - 1)].key);
   }, [flush]);
+  const closeOthers = async () => {
+    const keep = activeRef.current, others = tabsRef.current.filter(t => t.key !== keep);
+    await Promise.all(others.map(t => flush(t.key)));
+    recordClosed(others);
+    setTabs(all => all.filter(t => t.key === keep));
+  };
+  // Drag in the tab bar: `key` lands before or after the tab `by`.
+  const moveTab = (key, by, after) => setTabs(all => {
+    const moving = all.find(t => t.key === key), rest = all.filter(t => t.key !== key);
+    const at = rest.findIndex(t => t.key === by);
+    if (!moving || at < 0) return all;
+    rest.splice(at + (after ? 1 : 0), 0, moving);
+    return rest;
+  });
+  const reopenClosed = async () => {
+    const [list, all] = await Promise.all([api.closed(), api.list()]);
+    const exists = new Set(all.map(n => n.id)), here = new Set(tabsRef.current.map(t => t.id));
+    const next = list.find(c => exists.has(c.id) && !here.has(c.id));
+    if (next) openNote(next.id, 'tab'); else say('No closed notes to reopen');
+  };
   const cycle = step => {
     const all = tabsRef.current;
     const index = all.findIndex(t => t.key === activeRef.current);
@@ -176,6 +207,7 @@ export default function App() {
     if (params.get('note')) openNote(params.get('note'), 'tab').then(() => { if (!tabsRef.current.length) newTab(); });
     else newTab(params.get('name'));
     refreshNotes();
+    refreshClosed();
   }, []);
 
   useEffect(() => {
@@ -186,7 +218,7 @@ export default function App() {
   const handlers = useRef({});
   handlers.current = {
     'new-tab': () => newTab(),
-    switch: () => { refreshNotes(); setSwitcher(true); },
+    switch: () => { refreshNotes(); refreshClosed(); setSwitcher(true); },
     'close-tab': () => activeRef.current && closeTab(activeRef.current),
     'close-window': () => appWindow.close(),
     'next-tab': () => cycle(1),
@@ -198,8 +230,9 @@ export default function App() {
       if (!tab) return;
       clearTimeout(timers.current[key]); delete pending.current[key];
       if (tab.id) { try { await api.trash(tab.id); say('Moved to Trash'); } catch (error) { return say(String(error)); } }
-      closeTab(key);
+      closeTab(key, { record: false });
     },
+    'reopen-closed': () => reopenClosed(),
   };
   useEffect(() => {
     const offMenu = listen('menu', event => handlers.current[event.payload]?.(), { target: { kind: 'WebviewWindow', label: appWindow.label } });
@@ -222,7 +255,8 @@ export default function App() {
         } catch { update(tab.key, { status: 'error', error: 'This note was moved or deleted.' }); }
       }
     });
-    const offClose = appWindow.onCloseRequested(async () => { await flushAll(); await api.flushEmbeddings().catch(() => {}); });
+    const offClosed = listen('closed-changed', refreshClosed);
+    const offClose = appWindow.onCloseRequested(async () => { await flushAll(); recordClosed(tabsRef.current); await api.flushEmbeddings().catch(() => {}); });
     const onKey = e => {
       if (e.metaKey && /^[1-9]$/.test(e.key)) {
         const all = tabsRef.current, target = e.key === '9' ? all.at(-1) : all[Number(e.key) - 1];
@@ -234,29 +268,22 @@ export default function App() {
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', refreshNotes);
     return () => {
-      offMenu.then(f => f()); offChanged.then(f => f()); offClose.then(f => f());
+      offMenu.then(f => f()); offChanged.then(f => f()); offClosed.then(f => f()); offClose.then(f => f());
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('focus', refreshNotes);
     };
-  }, [flushAll, refreshNotes]);
+  }, [flushAll, refreshNotes, refreshClosed]);
 
   const openIds = useMemo(() => new Set(tabs.map(t => t.id).filter(Boolean)), [tabs]);
   const active = tabs.find(t => t.key === activeKey);
 
   return <div className="app-shell">
-    <header className="tab-bar" data-tauri-drag-region>
-      <div className="tabs" role="tablist" data-tauri-drag-region>
-        {tabs.map(tab => <div key={tab.key} role="tab" aria-selected={tab.key === activeKey} className={`tab${tab.key === activeKey ? ' active' : ''}`}
-          onMouseDown={e => { if (e.button === 1) { e.preventDefault(); closeTab(tab.key); } }} onClick={() => activate(tab.key)} title={tabLabel(tab)}>
-          <span className="tab-title">{tabLabel(tab)}</span>
-          {tab.status !== 'saved' && <i className={`tab-dot ${tab.status}`} aria-label={tab.status} />}
-          <button className="tab-close" aria-label="Close tab" onClick={e => { e.stopPropagation(); closeTab(tab.key); }}><X size={12} /></button>
-        </div>)}
-        <button className="bar-button" aria-label="New tab (⌘T)" title="New tab (⌘T)" onClick={() => newTab()}><Plus size={15} /></button>
-      </div>
+    <TabBar tabs={tabs} activeKey={activeKey} label={tabLabel} onActivate={activate} onClose={key => closeTab(key)} onNew={() => newTab()}
+      onMove={moveTab} onCloseOthers={closeOthers}>
+      <div className="bar-spacer" data-tauri-drag-region />
       <button className="bar-button switch-button" aria-label="Open note (⌘P)" title="Open note (⌘P)" onClick={() => handlers.current.switch()}><Search size={14} /><kbd>⌘P</kbd></button>
-    </header>
+    </TabBar>
 
     <main className="note-scroll">
       {tabs.map(tab => <article key={tab.key} className="note" hidden={tab.key !== activeKey}>
@@ -283,7 +310,7 @@ export default function App() {
       </>}
     </footer>
 
-    {switcher && <Switcher notes={notes} openIds={openIds} api={api} onClose={() => { setSwitcher(false); requestAnimationFrame(() => editors.current[activeRef.current]?.focus?.('end')); }}
+    {switcher && <Switcher notes={notes} closed={closed} openIds={openIds} api={api} onClose={() => { setSwitcher(false); requestAnimationFrame(() => editors.current[activeRef.current]?.focus?.('end')); }}
       onPick={(id, mode) => { setSwitcher(false); openNote(id, mode); }}
       onCreate={name => { setSwitcher(false); newTab(name); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}

@@ -13,24 +13,51 @@ kbd { font-family: inherit; font-size: 10px; color: var(--muted); }
 
 .app-shell { height: 100%; display: flex; flex-direction: column; position: relative; }
 
-/* Tab strip shares the titlebar with the traffic lights. */
+/* The tab bar (TabBar.jsx) shares the titlebar with the traffic lights. Onyx's pinned bar: a segmented strip,
+   the active pill raised on the surface, 180 px pills that give way to 88 px, then spill into the ⌄ list. */
 .tab-bar { height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 80px; background: var(--bg); border-bottom: 1px solid var(--line); }
-.tabs { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 2px; overflow: hidden; }
-.tab { position: relative; min-width: 0; max-width: 190px; flex: 0 1 auto; height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 11px; border-radius: 7px; color: var(--muted); font-size: 12px; }
-.tab:hover { background: var(--soft); color: var(--text); }
-.tab.active { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--line), 0 1px 2px #0000000d; }
-.tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-group { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 0 1 auto; }
+.bar-spacer { flex: 1; align-self: stretch; min-width: 12px; }
+.tab-strip { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 2px; overflow: hidden; border-radius: 9px; background: color-mix(in srgb, var(--text) 5.5%, transparent); }
+.tab { display: flex; align-items: center; flex: 0 1 auto; gap: 4px; width: 180px; min-width: 88px; height: 26px; padding: 0 3px 0 10px; border-radius: 7px; color: var(--muted); font-size: 12px; font-weight: 500; cursor: default; user-select: none; -webkit-user-select: none; transition: background-color .12s, color .12s; }
+.tab[hidden] { display: none; }
+.tab:hover { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text); }
+.tab[aria-selected=true] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px #0000001a; }
+.tab-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tab-strip.tabs-held .tab { flex: none; }
+.tab-title.tab-rolling, .tab-title.tab-unrolling { text-overflow: clip; }
+.tab-title.tab-rolling .tab-text, .tab-title.tab-unrolling .tab-text { display: inline-block; will-change: transform; }
+.tab-title.tab-rolling .tab-text { animation: tab-roll var(--roll-dur, 4s) ease-in-out infinite alternate; }
+@keyframes tab-roll { 0%, 18% { transform: none; } 82%, 100% { transform: translateX(var(--roll, 0)); } }
+@media (prefers-reduced-motion: reduce) { .tab-title.tab-rolling .tab-text { animation: none; } }
 .tab-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
 .tab-dot.conflict, .tab-dot.error { background: #c2603f; }
-.tab-close { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--muted); opacity: 0; flex-shrink: 0; }
-.tab:hover .tab-close, .tab.active .tab-close { opacity: 1; }
-.tab-close:hover { background: var(--soft); color: var(--text); }
+.tab-x { display: grid; flex: none; place-items: center; width: 18px; height: 18px; padding: 0; border-radius: 5px; color: var(--muted); opacity: 0; transition: opacity .12s; }
+.tab:hover .tab-x, .tab[aria-selected=true] .tab-x { opacity: 1; }
+.tab-x:hover { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
+.tab-x svg { width: 12px; height: 12px; }
+.tab-btn { position: relative; display: grid; flex: none; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 7px; color: var(--muted); }
+.tab-btn:hover, .tab-btn[aria-expanded=true] { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.tab-btn svg { width: 15px; height: 15px; }
+.tab-more { position: absolute; top: -3px; right: -5px; min-width: 12px; height: 12px; padding: 0 3px; border-radius: 6px; background: var(--green); color: var(--surface); font-size: 8.5px; font-weight: 700; line-height: 12px; }
+.tab-strip.tabs-dragging .tab { transition: transform .15s cubic-bezier(.2,.8,.2,1), background-color .12s, color .12s; }
+.tab-strip.tabs-dragging .tab.tab-drag { position: relative; z-index: 1; transition: none; background: var(--surface); color: var(--text); box-shadow: 0 2px 8px #0000002e; }
+@media (prefers-reduced-motion: reduce) { .tab-strip.tabs-dragging .tab { transition: none; } }
+.tab-menu { position: absolute; top: 38px; z-index: 30; width: 260px; max-height: 60vh; overflow-y: auto; margin: 0; padding: 5px; list-style: none; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 18px 50px #0000003d, 0 2px 8px #00000014; font-size: 12.5px; }
+.tab-menu li[role^=menuitem] { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px 0 4px; border-radius: 6px; color: var(--text); cursor: default; }
+.tab-menu li[role^=menuitem]:hover { background: var(--soft); }
+.tab-menu li[aria-disabled=true] { color: var(--muted); }
+.tab-menu li[aria-disabled=true]:hover { background: none; }
+.tab-menu-check { display: grid; place-items: center; width: 18px; flex: none; } .tab-menu-check svg { width: 13px; height: 13px; }
+.tab-menu-label { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tab-menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+
 .bar-button { height: 26px; min-width: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 6px; border-radius: 7px; color: var(--muted); flex-shrink: 0; }
 .bar-button:hover { background: var(--soft); color: var(--text); }
 .switch-button kbd { font-size: 10.5px; }
 
 /* The note */
-.note-scroll { flex: 1; overflow-y: auto; background: var(--paper); }
+.note-scroll { flex: 1; min-width: 0; overflow-y: auto; background: var(--paper); }
 .note { max-width: 720px; margin: 0 auto; padding: 26px 40px 80px; -webkit-user-select: text; user-select: text; cursor: text; }
 .note-title { width: 100%; border: 0; outline: none; background: transparent; padding: 0; margin: 0 0 10px; font-family: Georgia, "Times New Roman", serif; font-size: 27px; letter-spacing: -.6px; line-height: 1.25; color: var(--text); }
 .note-title::placeholder { color: var(--muted); opacity: .55; }

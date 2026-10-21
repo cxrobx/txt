@@ -1,3 +1,4 @@
+mod closed;
 pub mod embed;
 pub mod mcp;
 pub mod notes;
@@ -104,6 +105,28 @@ async fn trash_note(app: AppHandle, window: WebviewWindow, store: tauri::State<'
     store.trash(&id)?;
     changed(&app, &id, window.label());
     Ok(())
+}
+
+#[tauri::command]
+fn closed_notes(closed: tauri::State<'_, closed::ClosedList>) -> Vec<closed::Closed> {
+    closed.list()
+}
+
+#[tauri::command]
+fn record_closed(app: AppHandle, closed: tauri::State<'_, closed::ClosedList>, ids: Vec<String>) {
+    if ids.is_empty() {
+        return;
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    closed.record(&ids, now);
+    let _ = app.emit("closed-changed", ());
+}
+
+#[tauri::command]
+fn forget_closed(app: AppHandle, closed: tauri::State<'_, closed::ClosedList>, id: String) {
+    if closed.forget(&id) {
+        let _ = app.emit("closed-changed", ());
+    }
 }
 
 #[tauri::command]
@@ -305,6 +328,7 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &item("new-window", "New Note", "CmdOrCtrl+N")?,
             &item("new-tab", "New Tab", "CmdOrCtrl+T")?,
             &item("switch", "Open Note…", "CmdOrCtrl+P")?,
+            &item("reopen-closed", "Reopen Closed Note", "CmdOrCtrl+Shift+T")?,
             &PredefinedMenuItem::separator(app)?,
             &item("close-tab", "Close Tab", "CmdOrCtrl+W")?,
             &item("close-window", "Close Window", "CmdOrCtrl+Shift+W")?,
@@ -364,6 +388,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Store::new(notes_dir, support.clone()))
         .manage(Index::open(&support, embed::Config::load(&support)))
+        .manage(closed::ClosedList::open(&support))
         .menu(|app| menu(app))
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Focused(true) = event {
@@ -389,7 +414,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![list_notes, read_note, create_note, save_note, trash_note, open_window, open_external, copy_text, reveal, search_keyword, search_semantic, embed_status, flush_embeddings])
+        .invoke_handler(tauri::generate_handler![list_notes, read_note, create_note, save_note, trash_note, open_window, open_external, copy_text, reveal, search_keyword, search_semantic, embed_status, flush_embeddings, closed_notes, record_closed, forget_closed])
         .setup(|app| {
             let worker = app.handle().clone();
             std::thread::spawn(move || embed::run(worker));
