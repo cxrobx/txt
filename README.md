@@ -1,0 +1,41 @@
+# txt
+
+Quick notes, one keystroke away. Type `txt` in Alfred and a small note window opens, ready to type. Each window has tabs, and ⌘P switches any tab to any note. Notes are plain files in a folder, so any other app can read them.
+
+Source available under the [Business Source License 1.1](LICENSE): free for personal use and inside your own organisation. It converts to Apache 2.0 on 2030-10-21.
+
+## What it does
+
+- **New window, instantly.** `txt` opens a new note; `txt groceries` opens one titled "groceries". The app stays running with no windows open, so the next one appears at once. A window you close without typing leaves no file behind.
+- **Tabs and a switcher.** ⌘T opens a new tab, ⌘P finds a note by title or text. In the switcher, ↩ opens a note in this tab, ⌘↩ in a new tab, ⌥↩ in a new window. ⌘1–9 jump between tabs, and ⌘W closes one.
+- **Markdown that renders as you type.** Headings, lists, checklists, quotes, code, tables and links. Select text for a formatting toolbar; ⌘K adds a link, and ⌘-click follows one. The editor comes from [Margin Notes](https://github.com/cxrobx/Margin).
+- **Plain files.** Notes live in `~/Documents/scratchpad` as `.md` files with a small front-matter block (`id`, `title`). Older `.txt` files open as plain text and are saved back exactly as typed, never converted to Markdown.
+- **Links that don't break.** `txt://note/<id>` opens a note (File → Copy Link to Note, ⇧⌘C). Renaming a note or its file doesn't break the link. `txt://new?name=…` opens a new named note.
+
+## Install
+
+Build from source (macOS 13+, Rust, Node 20+):
+
+```sh
+npm install
+npx tauri build --bundles app
+cp -R src-tauri/target/release/bundle/macos/txt.app /Applications/
+```
+
+The first time txt opens, macOS asks whether it may use your Documents folder; that's where the notes are kept.
+
+### Alfred
+
+```sh
+python3 integrations/alfred/build.py   # writes dist/txt.alfredworkflow
+open dist/txt.alfredworkflow
+```
+
+The workflow adds one keyword: `txt [name]`. If txt isn't installed, it creates a TextEdit file in the same folder instead.
+
+## Develop
+
+```sh
+(cd src-tauri && cargo test)                     # the note store
+TXT_NOTES_DIR=/tmp/txt-notes npx tauri dev       # run against a scratch folder
+```
