@@ -64,7 +64,7 @@ $LSR -u src-tauri/target/release/bundle/macos/txt.app; $LSR -f /Applications/txt
 - **Never build a window inside a link callback.** `on_open_url` and the single-instance callback run inside Tauri's event dispatch, which holds the lock that `WebviewWindowBuilder::build` needs. On a cold launch from `txt://new`, the app hung with no window. Go through `handle_urls_later`.
 - **Files handed to txt arrive through the deep-link plugin, not `RunEvent::Opened`.** The plugin takes over macOS's open callbacks, so `Opened` never fires; it also reports each file twice, hence the 1 s repeat filter in `handle_urls_later`. On a cold launch the URL is only in `deep_link().get_current()`. txt is registered for .txt/.md as **Alternate** (`fileAssociations` rank), so it never becomes the default app.
 - **"No window" after a reinstall is usually the Documents prompt.** Every thread that reads the notes folder blocks in `opendir` until it's answered; `sample <pid>` shows it. Don't debug the code until that's ruled out.
-- **⌘\\ is the editor's "clear formatting"** (as in Margin). Don't bind a menu command to it; the editor wins.
+- **⌘\ is the editor's "clear formatting"** (as in Margin). Don't bind a menu command to it; the editor wins.
 - **Menu commands use `emit_to(label)`, never `emit`.** `emit` reaches every window, so ⌘W closed a tab in every window.
 - **File commands are `async`.** Tauri runs plain commands on the main thread, and the first read of `~/Documents` waits for the macOS privacy prompt, which froze every window until it was answered.
 - **Two bundles registered for `txt://`.** LaunchServices learns about the build folder's `txt.app` too, and can route links there. Unregister it after every build (the `-u` line above).
