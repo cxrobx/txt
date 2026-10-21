@@ -59,6 +59,8 @@ To use a different model or server, create `~/Library/Application Support/com.cx
 
 With Ollama running and `ollama pull qwen3.5:4b`, txt titles untitled notes in the same background batches as meaning search. The model is unloaded as soon as each batch finishes. A `.txt` note's title is stored in txt's index, so its file is never rewritten; a `.md` note's goes in its front matter as `title:` with `auto_title: true`. Type a title yourself to replace it for good.
 
+Short on memory? `qwen3.5:4b` takes about 4 GB while a batch runs. `llama3.2:3b` takes about 2.6 GB and is faster, with slightly plainer titles; set it as `model` below.
+
 Settings go under `titles` in the same `config.json`:
 
 ```json
