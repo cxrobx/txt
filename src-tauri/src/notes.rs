@@ -47,6 +47,13 @@ pub struct NoteDoc {
     pub body: String,
 }
 
+#[derive(Serialize)]
+pub struct KeywordHit {
+    pub id: String,
+    /// The text around the first match, so you can see why it matched.
+    pub snippet: String,
+}
+
 pub struct Store {
     pub dir: PathBuf,
     index_path: PathBuf,
@@ -148,6 +155,44 @@ impl Store {
             preview: preview(body),
         };
         Some((meta, body.to_string()))
+    }
+
+    /// Every note with its body (front matter removed).
+    pub fn all(&self) -> Vec<(NoteMeta, String)> {
+        let mut index = self.index.lock().unwrap();
+        let mut dirty = false;
+        let Ok(entries) = fs::read_dir(&self.dir) else { return vec![] };
+        let mut out: Vec<_> = entries.flatten().filter_map(|e| self.meta_for(&e.path(), &mut index, &mut dirty)).collect();
+        if dirty {
+            self.save_index(&index);
+        }
+        out.sort_by(|a, b| b.0.modified.cmp(&a.0.modified));
+        out
+    }
+
+    /// Full-text keyword search: every word must appear in the title or body.
+    /// Title hits rank first, then the most recently edited.
+    pub fn keyword_search(&self, query: &str, limit: usize) -> Vec<KeywordHit> {
+        let words: Vec<String> = query.to_lowercase().split_whitespace().map(String::from).collect();
+        if words.is_empty() {
+            return vec![];
+        }
+        let mut hits: Vec<(usize, u64, KeywordHit)> = self
+            .all()
+            .into_iter()
+            .filter_map(|(meta, body)| {
+                let title = meta.title.to_lowercase();
+                let text = body.to_lowercase();
+                if !words.iter().all(|w| title.contains(w.as_str()) || text.contains(w.as_str()) || meta.file.to_lowercase().contains(w.as_str())) {
+                    return None;
+                }
+                let score = words.iter().filter(|w| title.contains(w.as_str())).count();
+                let snippet = words.iter().find_map(|w| text.find(w.as_str())).map(|at| around(&body, at)).unwrap_or_default();
+                Some((score, meta.modified, KeywordHit { id: meta.id, snippet }))
+            })
+            .collect();
+        hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+        hits.into_iter().take(limit).map(|h| h.2).collect()
     }
 
     fn find(&self, id: &str) -> Result<PathBuf, String> {
@@ -290,6 +335,16 @@ fn preview(body: &str) -> String {
     truncate(&text, 140)
 }
 
+/// ~140 characters of `body` around byte offset `at`, on one line. `at` comes
+/// from the lowercased text, which can differ in length, so it is clamped.
+fn around(body: &str, at: usize) -> String {
+    let at = at.min(body.len());
+    let start = body[..body.floor_char_boundary(at)].char_indices().rev().nth(50).map(|(i, _)| i).unwrap_or(0);
+    let flat = body[start..].split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = truncate(&flat, 140);
+    if start > 0 { format!("…{text}") } else { text }
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         s.to_string()
@@ -422,6 +477,19 @@ mod tests {
         assert_eq!(doc.meta.title, "Untitled");
         let meta = s.save(&doc.meta.id, "- [ ] **buy** milk\nand bread", None, false, None).unwrap();
         assert_eq!((meta.title.as_str(), meta.title_source.as_str()), ("buy milk", "derived"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn keyword_search_reads_the_whole_body() {
+        let (s, root) = store();
+        fs::write(s.dir.join("a.txt"), format!("first line\n{}\nthe Zebra crossing", "filler ".repeat(100))).unwrap();
+        fs::write(s.dir.join("zebra notes.txt"), "nothing").unwrap();
+        let hits = s.keyword_search("zebra", 10);
+        assert_eq!(hits.len(), 2);
+        assert_eq!(s.read(&hits[0].id).unwrap().meta.title, "zebra notes", "title hits rank first");
+        assert!(hits[1].snippet.contains("Zebra crossing"), "{}", hits[1].snippet);
+        assert!(s.keyword_search("zebra missing", 10).is_empty());
         fs::remove_dir_all(root).unwrap();
     }
 

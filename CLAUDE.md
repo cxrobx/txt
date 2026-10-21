@@ -11,7 +11,8 @@ Tauri 2 (Rust) + React + Tiptap. The editor is lifted from [Margin Notes](https:
 | `src-tauri/src/notes.rs` | The file store: ids, titles, front matter, atomic writes, conflict check. Has the tests. |
 | `src-tauri/src/lib.rs` | Commands, windows, menu, `txt://` links, app lifecycle |
 | `src/App.jsx` | One window: tabs, saving, menu commands |
-| `src/Switcher.jsx` | ⌘P |
+| `src-tauri/src/embed.rs` | Meaning search: the batch worker, `index.db`, per-model prefixes, the score cut-off |
+| `src/Switcher.jsx` | ⌘P: keyword hits at once, "Related" (meaning) hits after a 400 ms pause |
 | `src/editor/` | Margin's editor, minus attachments, plus `txt://` links and ⌘-click |
 | `integrations/alfred/` | The Alfred workflow: `txt-open.sh` (the script) and `build.py` (writes `dist/txt.alfredworkflow`) |
 
@@ -21,7 +22,15 @@ Tauri 2 (Rust) + React + Tiptap. The editor is lifted from [Margin Notes](https:
 - **`.txt` notes are never parsed as Markdown.** They open in a plain textarea, so a save writes back only the characters you typed. Their titles live in `~/Library/Application Support/com.cx.txt/index.json`. The test `untitled_txt_keeps_its_uuid_and_bytes` guards this.
 - Ids: the front-matter `id`, else the UUID in a TextEdit-era `Untitled-<UUID>.txt` name, else an index entry. Links are `txt://note/<id>`, so renaming a file or changing its title never breaks them.
 - A new window creates its file on the first keystroke, so a window opened and closed leaves nothing behind.
-- `TXT_NOTES_DIR=<dir>` points a run at another folder. Use it to test against a copy, never the real scratchpad.
+- `TXT_NOTES_DIR=<dir>` points a run at another folder, and `TXT_SUPPORT_DIR=<dir>` at another index and config. Test against copies, never the real scratchpad or index.
+
+## Meaning search
+
+- The model is an outside service with Ollama's `/api/embed` API, set in `config.json` in the support folder (default: Ollama, `embeddinggemma`). Nothing about a particular machine belongs in the code.
+- **Batched on purpose.** A save calls `Index::touch`; the worker embeds a note only after `idle_secs` (default 180) without edits, on window close (`flush_embeddings`), or in the 5-minute rescan that catches edits made outside txt. Never embed per keystroke or per save: an idle-unloading model would stay awake all day.
+- A model that can't be reached leaves notes unmarked, so they retry next batch. Search then shows keyword hits only, and the switcher footer says so.
+- Empty notes are recorded with no chunks. Their vector is just the title, which scored 0.63–0.68 against every query and crowded out real matches.
+- The cut-off (`SPREAD` 0.12 below the best match, `FLOOR` 0.60) was calibrated on EmbeddingGemma 2. Another model may need it re-measured.
 
 ## Build, test, install
 

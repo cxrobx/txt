@@ -19,6 +19,10 @@ const api = {
   openExternal: target => invoke('open_external', { target }),
   copy: text => invoke('copy_text', { text }),
   reveal: id => invoke('reveal', { id }),
+  searchKeyword: query => invoke('search_keyword', { query }),
+  searchSemantic: query => invoke('search_semantic', { query }),
+  embedStatus: () => invoke('embed_status'),
+  flushEmbeddings: () => invoke('flush_embeddings'),
 };
 const SAVE_DELAY = 600;
 let nextKey = 1;
@@ -209,7 +213,7 @@ export default function App() {
         } catch { update(tab.key, { status: 'error', error: 'This note was moved or deleted.' }); }
       }
     });
-    const offClose = appWindow.onCloseRequested(() => flushAll());
+    const offClose = appWindow.onCloseRequested(async () => { await flushAll(); await api.flushEmbeddings().catch(() => {}); });
     const onKey = e => {
       if (e.metaKey && /^[1-9]$/.test(e.key)) {
         const all = tabsRef.current, target = e.key === '9' ? all.at(-1) : all[Number(e.key) - 1];
@@ -270,7 +274,7 @@ export default function App() {
       </>}
     </footer>
 
-    {switcher && <Switcher notes={notes} openIds={openIds} onClose={() => { setSwitcher(false); requestAnimationFrame(() => editors.current[activeRef.current]?.focus?.('end')); }}
+    {switcher && <Switcher notes={notes} openIds={openIds} api={api} onClose={() => { setSwitcher(false); requestAnimationFrame(() => editors.current[activeRef.current]?.focus?.('end')); }}
       onPick={(id, mode) => { setSwitcher(false); openNote(id, mode); }}
       onCreate={name => { setSwitcher(false); newTab(name); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}

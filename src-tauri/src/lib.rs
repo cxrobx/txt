@@ -1,6 +1,8 @@
+mod embed;
 mod notes;
 
-use notes::{NoteDoc, NoteMeta, Store};
+use embed::{Hit, Index, Status};
+use notes::{KeywordHit, NoteDoc, NoteMeta, Store};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -34,8 +36,9 @@ async fn read_note(store: tauri::State<'_, Store>, id: String) -> Result<NoteDoc
 }
 
 #[tauri::command]
-async fn create_note(app: AppHandle, window: WebviewWindow, store: tauri::State<'_, Store>, name: Option<String>) -> Result<NoteDoc, String> {
+async fn create_note(app: AppHandle, window: WebviewWindow, store: tauri::State<'_, Store>, index: tauri::State<'_, Index>, name: Option<String>) -> Result<NoteDoc, String> {
     let doc = store.create(name)?;
+    index.touch(&doc.meta.id);
     changed(&app, &doc.meta.id, window.label());
     Ok(doc)
 }
@@ -45,12 +48,14 @@ async fn save_note(
     app: AppHandle,
     window: WebviewWindow,
     store: tauri::State<'_, Store>,
+    index: tauri::State<'_, Index>,
     id: String,
     body: String,
     title: Option<String>,
     expected_modified: Option<u64>,
 ) -> Result<NoteMeta, String> {
     let meta = store.save(&id, &body, title, false, expected_modified)?;
+    index.touch(&id);
     changed(&app, &id, window.label());
     Ok(meta)
 }
@@ -60,6 +65,29 @@ async fn trash_note(app: AppHandle, window: WebviewWindow, store: tauri::State<'
     store.trash(&id)?;
     changed(&app, &id, window.label());
     Ok(())
+}
+
+#[tauri::command]
+async fn search_keyword(store: tauri::State<'_, Store>, query: String) -> Result<Vec<KeywordHit>, String> {
+    Ok(store.keyword_search(&query, 60))
+}
+
+/// Can take a few seconds when the model has to load; the switcher shows
+/// keyword results meanwhile.
+#[tauri::command]
+async fn search_semantic(index: tauri::State<'_, Index>, query: String) -> Result<Vec<Hit>, String> {
+    index.search(&query, 8)
+}
+
+#[tauri::command]
+fn embed_status(index: tauri::State<'_, Index>) -> Status {
+    index.status()
+}
+
+/// A closing window's edits are done; embed them without waiting out the idle time.
+#[tauri::command]
+fn flush_embeddings(index: tauri::State<'_, Index>) {
+    index.flush_soon();
 }
 
 #[tauri::command]
@@ -255,14 +283,15 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 pub fn run() {
     let home = dirs::home_dir().expect("home folder");
     let notes_dir = std::env::var("TXT_NOTES_DIR").map(Into::into).unwrap_or_else(|_| home.join("Documents/scratchpad"));
-    let support = home.join("Library/Application Support/com.cx.txt");
+    let support = std::env::var("TXT_SUPPORT_DIR").map(Into::into).unwrap_or_else(|_| home.join("Library/Application Support/com.cx.txt"));
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _| {
             handle_urls_later(app, argv.into_iter().filter(|a| a.starts_with("txt://")).collect());
         }))
         .plugin(tauri_plugin_deep_link::init())
-        .manage(Store::new(notes_dir, support))
+        .manage(Store::new(notes_dir, support.clone()))
+        .manage(Index::open(&support, embed::Config::load(&support)))
         .menu(|app| menu(app))
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Focused(true) = event {
@@ -285,8 +314,10 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![list_notes, read_note, create_note, save_note, trash_note, open_window, open_external, copy_text, reveal])
+        .invoke_handler(tauri::generate_handler![list_notes, read_note, create_note, save_note, trash_note, open_window, open_external, copy_text, reveal, search_keyword, search_semantic, embed_status, flush_embeddings])
         .setup(|app| {
+            let worker = app.handle().clone();
+            std::thread::spawn(move || embed::run(worker));
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 handle_urls_later(&handle, event.urls().iter().map(|u| u.to_string()).collect());

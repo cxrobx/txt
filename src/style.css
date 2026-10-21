@@ -79,3 +79,5 @@ kbd { font-family: inherit; font-size: 10px; color: var(--muted); }
 .switcher-empty { padding: 14px; color: var(--muted); font-size: 12px; }
 .switcher-hints { display: flex; gap: 14px; padding: 7px 14px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--muted); }
 .switcher-hints kbd { margin-right: 3px; }
+.hint-status { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.switcher-section { padding: 9px 10px 3px; font-size: 10.5px; letter-spacing: .3px; color: var(--muted); }

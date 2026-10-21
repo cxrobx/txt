@@ -10,6 +10,7 @@ Source available under the [Business Source License 1.1](LICENSE): free for pers
 - **Tabs and a switcher.** ⌘T opens a new tab, ⌘P finds a note by title or text. In the switcher, ↩ opens a note in this tab, ⌘↩ in a new tab, ⌥↩ in a new window. ⌘1–9 jump between tabs, and ⌘W closes one.
 - **Markdown that renders as you type.** Headings, lists, checklists, quotes, code, tables and links. Select text for a formatting toolbar; ⌘K adds a link, and ⌘-click follows one. The editor comes from [Margin Notes](https://github.com/cxrobx/Margin).
 - **Plain files.** Notes live in `~/Documents/scratchpad` as `.md` files with a small front-matter block (`id`, `title`). Older `.txt` files open as plain text and are saved back exactly as typed, never converted to Markdown.
+- **Search by meaning (optional).** With a local embedding model running, ⌘P also lists notes *related* to what you typed, not just ones containing the words. See [Meaning search](#meaning-search).
 - **Links that don't break.** `txt://note/<id>` opens a note (File → Copy Link to Note, ⇧⌘C). Renaming a note or its file doesn't break the link. `txt://new?name=…` opens a new named note.
 
 ## Install
@@ -33,9 +34,27 @@ open dist/txt.alfredworkflow
 
 The workflow adds one keyword: `txt [name]`. If txt isn't installed, it creates a TextEdit file in the same folder instead.
 
+## Meaning search
+
+Keyword search always works. To also find notes by meaning, run a local embedding model behind Ollama's API:
+
+```sh
+ollama pull embeddinggemma
+```
+
+txt then embeds your notes in the background, in batches: a save only marks a note as changed, and the changes are embedded together once you've stopped typing for a few minutes, or when you close the window. Models served this way unload when idle, so the model is only in memory while a batch or a search runs. The index (a few MB) lives in `~/Library/Application Support/com.cx.txt/index.db`.
+
+To use a different model or server, create `~/Library/Application Support/com.cx.txt/config.json`; every key is optional:
+
+```json
+{ "url": "http://127.0.0.1:11434", "model": "embeddinggemma", "idle_secs": 180 }
+```
+
+`model` can be any embedding model the server offers; EmbeddingGemma and `nomic-embed-text` get their recommended task prefixes. Changing it re-embeds every note.
+
 ## Develop
 
 ```sh
 (cd src-tauri && cargo test)                     # the note store
-TXT_NOTES_DIR=/tmp/txt-notes npx tauri dev       # run against a scratch folder
+TXT_NOTES_DIR=/tmp/txt-notes TXT_SUPPORT_DIR=/tmp/txt-support npx tauri dev   # a scratch folder and index
 ```
