@@ -13,6 +13,7 @@ Source available under the [Business Source License 1.1](LICENSE): free for pers
 - **Search by meaning (optional).** With a local embedding model running, ⌘P also lists notes *related* to what you typed, not just ones containing the words. See [Meaning search](#meaning-search).
 - **Titles that write themselves (optional).** A note you haven't titled gets a short title from a small local model, written once the note has some text and refreshed only if it roughly doubles. Your own titles are never replaced, and nothing leaves your Mac.
 - **Live reload.** An edit made outside txt (an agent through the MCP, another editor, a sync) shows up in open tabs within a second. A tab you're typing in keeps your text and asks before loading theirs.
+- **Open With.** Finder's Open With, or any app that hands txt a file in the notes folder, opens it as that note. txt never makes itself the default app for .txt or .md.
 - **Links that don't break.** `txt://note/<id>` opens a note (File → Copy Link to Note, ⇧⌘C). Renaming a note or its file doesn't break the link. `txt://new?name=…` opens a new named note.
 
 ## Install
@@ -66,7 +67,7 @@ Settings go under `titles` in the same `config.json`:
 
 ## MCP
 
-`txt.app` ships an MCP server, so an agent can find and add to your notes. It has six tools: `search_notes` (words, plus meaning when the embedding model runs), `list_notes`, `read_note`, `create_note`, `append_note` and `note_link`. Nothing it does deletes or replaces text. For Claude Code:
+`txt.app` ships an MCP server, so an agent can find and add to your notes. It has six tools: `search_notes` (words, plus meaning when the embedding model runs), `list_notes`, `read_note`, `create_note`, `append_note` and `note_link`. Nothing it does deletes or replaces text. `txt-mcp resolve <id>` prints a note's title and path as JSON (exit 2 if there's no such note), for apps that show txt links. For Claude Code:
 
 ```sh
 claude mcp add --scope user txt /Applications/txt.app/Contents/MacOS/txt-mcp

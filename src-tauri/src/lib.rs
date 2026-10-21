@@ -11,6 +11,8 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, TitleBarStyle, WebviewUrl, We
 use tauri_plugin_deep_link::DeepLinkExt;
 
 static WINDOWS: AtomicUsize = AtomicUsize::new(0);
+/// Something was handed to txt at launch, so the blank fallback window stays shut.
+static OPENING_FILE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The window menu commands go to. Tracked from focus events, because a window
 /// that was just opened doesn't report `is_focused` yet.
 static LAST_FOCUSED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
@@ -223,9 +225,26 @@ fn focused(app: &AppHandle) -> Option<WebviewWindow> {
 /// Link callbacks run inside Tauri's event dispatch, which holds the listener
 /// lock that building a window needs, so a window opened there deadlocks the
 /// app (seen on a cold launch from `txt://new`). Queue the work instead.
+/// The last URL handled and when. macOS reports a file handed to the app
+/// twice (as a URL and as a file), so a repeat within a second is dropped.
+static LAST_URL: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
+
 fn handle_urls_later(app: &AppHandle, urls: Vec<String>) {
+    let urls: Vec<String> = urls
+        .into_iter()
+        .filter(|u| {
+            let mut last = LAST_URL.lock().unwrap();
+            let repeat = matches!(&*last, Some((prev, at)) if prev == u && at.elapsed() < std::time::Duration::from_secs(1));
+            *last = Some((u.clone(), std::time::Instant::now()));
+            !repeat
+        })
+        .collect();
     let app = app.clone();
     std::thread::spawn(move || {
+        // A file handed to txt (Finder's Open With, `open -b com.cx.txt <file>`,
+        // a search launcher) opens as its note, if it's one of txt's notes.
+        // Resolved here, off the main thread, because it reads the folder.
+        let urls: Vec<String> = urls.into_iter().filter_map(|u| if u.starts_with("file:") { note_link_for_file(&app, &u) } else { Some(u) }).collect();
         let h = app.clone();
         let _ = app.run_on_main_thread(move || {
             for url in urls {
@@ -233,6 +252,12 @@ fn handle_urls_later(app: &AppHandle, urls: Vec<String>) {
             }
         });
     });
+}
+
+fn note_link_for_file(app: &AppHandle, raw: &str) -> Option<String> {
+    let path = url::Url::parse(raw).ok()?.to_file_path().ok()?.canonicalize().ok()?;
+    let note = app.state::<Store>().list().into_iter().find(|n| std::path::Path::new(&n.path).canonicalize().ok().as_deref() == Some(path.as_path()))?;
+    Some(format!("txt://note/{}", note.id))
 }
 
 /// `txt://new`, `txt://new?name=plan`, `txt://note/<id>`.
@@ -367,6 +392,11 @@ pub fn run() {
             app.deep_link().on_open_url(move |event| {
                 handle_urls_later(&handle, event.urls().iter().map(|u| u.to_string()).collect());
             });
+            // What launched the app (a file or link) when it wasn't running.
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                OPENING_FILE.store(true, Ordering::SeqCst);
+                handle_urls_later(app.handle(), urls.iter().map(|u| u.to_string()).collect());
+            }
             // A cold launch from `txt://…` delivers the URL just after setup.
             // Open a blank note only if nothing else opened a window by then.
             let handle = app.handle().clone();
@@ -374,7 +404,7 @@ pub fn run() {
                 std::thread::sleep(std::time::Duration::from_millis(400));
                 let h = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
-                    if h.webview_windows().is_empty() {
+                    if h.webview_windows().is_empty() && !OPENING_FILE.load(Ordering::SeqCst) {
                         let _ = new_window(&h, None, None);
                     }
                 });

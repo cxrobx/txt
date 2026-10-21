@@ -52,11 +52,14 @@ $LSR -u src-tauri/target/release/bundle/macos/txt.app; $LSR -f /Applications/txt
 ## Landmines
 
 - **Never build a window inside a link callback.** `on_open_url` and the single-instance callback run inside Tauri's event dispatch, which holds the lock that `WebviewWindowBuilder::build` needs. On a cold launch from `txt://new`, the app hung with no window. Go through `handle_urls_later`.
+- **Files handed to txt arrive through the deep-link plugin, not `RunEvent::Opened`.** The plugin takes over macOS's open callbacks, so `Opened` never fires; it also reports each file twice, hence the 1 s repeat filter in `handle_urls_later`. On a cold launch the URL is only in `deep_link().get_current()`. txt is registered for .txt/.md as **Alternate** (`fileAssociations` rank), so it never becomes the default app.
+- **"No window" after a reinstall is usually the Documents prompt.** Every thread that reads the notes folder blocks in `opendir` until it's answered; `sample <pid>` shows it. Don't debug the code until that's ruled out.
 - **Menu commands use `emit_to(label)`, never `emit`.** `emit` reaches every window, so ⌘W closed a tab in every window.
 - **File commands are `async`.** Tauri runs plain commands on the main thread, and the first read of `~/Documents` waits for the macOS privacy prompt, which froze every window until it was answered.
 - **Two bundles registered for `txt://`.** LaunchServices learns about the build folder's `txt.app` too, and can route links there. Unregister it after every build (the `-u` line above).
 - **Live reload is a 1 s mtime poll** (`watch` in `lib.rs`), not FSEvents: ~150 `stat` calls, no reads, no extra crate. It emits `notes-changed` with `by: "disk"`. A window reloads only tabs with nothing pending or in flight, and checks that again after its read; a tab you're typing in keeps your text and gets the conflict banner at its next save.
 - **Two processes write `index.json`:** the app and `txt-mcp`. `Store::index()` re-reads the file whenever its mtime isn't the one this process last saw, so neither saves over the other's ids. Always lock through `index()`, never `self.index.lock()` directly. The test `two_processes_never_drop_each_others_index_entries` guards this.
+- `txt-mcp resolve <id>` prints `{id,title,path}` or exits 2; Margin's link chips call it. Keep its output stable.
 - **`txt-mcp` has no delete or replace tool, on purpose.** `append_note` saves with the `modified` it read, so a simultaneous edit in txt is refused rather than overwritten.
 - **`scripts/build-mcp.sh` stages a placeholder first.** `txt-mcp` is in the app's own crate, and tauri-build won't compile that crate until `binaries/txt-mcp-<triple>` exists.
 - The installed `/Applications/txt.app/Contents/MacOS/txt-mcp` is a live MCP registration: reinstalling the app replaces it, and deleting the app breaks it.
