@@ -1,8 +1,8 @@
-/* Margin's palette (renderer/style.css), so the two read as one family. */
+/* Black and white, to match the icon. --green is the accent's old name (from Margin's palette); it's ink now. */
 :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-synthesis: none; color-scheme: light;
-  --bg: #f6f5f1; --surface: #fffefa; --text: #303b33; --muted: #8a9188; --line: #e5e7df; --green: #385747; --soft: #eaeee5; --paper: #fdfcf8; }
+  --bg: #f4f4f4; --surface: #ffffff; --text: #1c1c1c; --muted: #8a8a8a; --line: #e2e2e2; --green: #1c1c1c; --soft: #ebebeb; --paper: #ffffff; --note-caret: #1c1c1c; }
 :root[data-theme=dark] { color-scheme: dark;
-  --bg: #202723; --surface: #28302a; --text: #e2e6dc; --muted: #9ca69a; --line: #3b433c; --green: #a8c6ad; --soft: #343f34; --paper: #2c342e; }
+  --bg: #1a1a1a; --surface: #2c2c2c; --text: #e6e6e6; --muted: #959595; --line: #353535; --green: #e6e6e6; --soft: #303030; --paper: #222222; --note-caret: #e6e6e6; }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 body { margin: 0; color: var(--text); background: var(--paper); overflow: hidden; -webkit-user-select: none; user-select: none; cursor: default; }
@@ -65,7 +65,6 @@ kbd { font-family: inherit; font-size: 10px; color: var(--muted); }
 .note .rich-body:focus { outline: none; }
 .plain-body { display: block; width: 100%; min-height: 50vh; border: 0; outline: none; resize: none; padding: 0; background: transparent; font-size: 15px; line-height: 1.65; color: var(--text); overflow: hidden; }
 .plain-body::placeholder, .rich-body p.is-editor-empty:first-child::before { color: var(--muted); opacity: .7; }
-:root { --note-caret: #557d9a; }
 .note :is(.note-title, .rich-body, .plain-body) { caret-color: var(--note-caret); }
 
 /* Markdown, at reading size */

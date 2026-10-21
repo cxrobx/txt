@@ -2,8 +2,6 @@
 .rich-editor-content[hidden] { display: none; }
 .rich-body { min-height: 56px; padding: 0; outline: none; overflow-wrap: anywhere; }
 .rich-body p { margin: 8px 0; }
-:root { --note-caret: #557d9a; }
-:root[data-theme=dark] { --note-caret: #7092ad; }
 .inline-editor :is(.editor-title, .rich-body) { caret-color: var(--note-caret); }
 .inline-editor .has-note-caret { caret-color: transparent; }
 .note-caret { position: absolute; width: 2px; border-radius: 1px; background: var(--note-caret); pointer-events: none; z-index: 2; animation: note-caret-blink 1.2s ease-in-out infinite; }

@@ -16,6 +16,7 @@ Tauri 2 (Rust) + React + Tiptap. The editor is lifted from [Margin Notes](https:
 | `src-tauri/src/mcp.rs` | The MCP tools; `src/bin/txt-mcp.rs` is its stdio entry point, bundled as `Contents/MacOS/txt-mcp` |
 | `src/TabBar.jsx` | Onyx's tab bar (`ask-widget/src/onyx/tabs_ui.py`), minus auto-hide and split view: 180→88 px pills, overflow into the ⌄ list, hover-widen with scrolling titles, drag to reorder. Widths and `hidden` are set on the DOM, never through React props |
 | `src-tauri/src/closed.rs` + `src/recents.mjs` | Recently closed notes: one app-wide `closed.json` (newest 20); the empty ⌘P lists them, ⌘⇧T reopens the newest |
+| `src-tauri/src/appearance.rs` | View → Appearance (System / Light / Dark), saved as `appearance` in the support folder. It sets each window's own theme; the page follows through `prefers-color-scheme` (`main.jsx`), so the web side has no setting |
 | `src/Switcher.jsx` | ⌘P: keyword hits at once, "Related" (meaning) hits after a 400 ms pause |
 | `src/editor/` | Margin's editor, minus attachments, plus `txt://` links and ⌘-click |
 | `integrations/alfred/` | The Alfred workflow: `txt-open.sh` (the script) and `build.py` (writes `dist/txt.alfredworkflow`) |

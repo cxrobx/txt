@@ -1,3 +1,4 @@
+mod appearance;
 mod closed;
 pub mod embed;
 pub mod mcp;
@@ -8,7 +9,7 @@ mod update;
 use embed::{Hit, Index, Status};
 use notes::{KeywordHit, NoteDoc, NoteMeta, Store};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -222,6 +223,7 @@ fn new_window(app: &AppHandle, note: Option<&str>, name: Option<&str>) -> tauri:
         .inner_size(620.0, 680.0)
         .min_inner_size(360.0, 260.0)
         .title_bar_style(TitleBarStyle::Overlay)
+        .theme(appearance::theme())
         .hidden_title(true)
         .traffic_light_position(tauri::LogicalPosition::new(14.0, 20.0))
         .disable_drag_drop_handler();
@@ -352,6 +354,13 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &PredefinedMenuItem::select_all(app, None)?,
         ],
     )?;
+    let mut checks = Vec::new();
+    for (id, label) in appearance::CHOICES {
+        checks.push((id, CheckMenuItem::with_id(app, format!("appearance-{id}"), label, true, appearance::current() == id, None::<&str>)?));
+    }
+    let appearance_menu = Submenu::with_items(app, "Appearance", true, &checks.iter().map(|(_, c)| c as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect::<Vec<_>>())?;
+    app.manage(appearance::Items(checks));
+    let view = Submenu::with_items(app, "View", true, &[&appearance_menu])?;
     let window = Submenu::with_items(
         app,
         "Window",
@@ -364,7 +373,7 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &PredefinedMenuItem::maximize(app, None)?,
         ],
     )?;
-    Menu::with_items(app, &[&app_menu, &file, &edit, &window])
+    Menu::with_items(app, &[&app_menu, &file, &edit, &view, &window])
 }
 
 /// The notes folder and the support folder (index, embeddings, config), shared
@@ -399,6 +408,7 @@ pub fn run() {
             "new-window" => {
                 let _ = new_window(app, None, None);
             }
+            id if id.starts_with("appearance-") => appearance::set(app, &id["appearance-".len()..]),
             "check-updates" => {
                 tauri::async_runtime::spawn(update::check(app.clone(), true));
             }
