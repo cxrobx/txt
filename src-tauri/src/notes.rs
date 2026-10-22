@@ -582,6 +582,12 @@ mod tests {
         let meta = s.set_auto_title(&md.meta.id, "Body Text", saved.modified).unwrap();
         assert_eq!(meta.title_source, "auto");
         assert_eq!(s.read(&md.meta.id).unwrap().body, "# body\n\ntext");
+        // A title typed against the pre-title file conflicts; App.jsx sees the
+        // text is unchanged and saves again, and the typed title wins.
+        assert!(s.save(&md.meta.id, "# body\n\ntext", Some("Mine".into()), false, Some(saved.modified)).is_err());
+        let now = s.read(&md.meta.id).unwrap().meta.modified;
+        let meta = s.save(&md.meta.id, "# body\n\ntext", Some("Mine".into()), false, Some(now)).unwrap();
+        assert_eq!((meta.title.as_str(), meta.title_source.as_str()), ("Mine", "manual"));
         fs::remove_dir_all(root).unwrap();
     }
 

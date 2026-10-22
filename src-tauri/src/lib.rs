@@ -130,6 +130,12 @@ fn forget_closed(app: AppHandle, closed: tauri::State<'_, closed::ClosedList>, i
     }
 }
 
+/// The bar's sun/moon button: Light or Dark, as if picked from View → Appearance.
+#[tauri::command]
+fn set_appearance(app: AppHandle, choice: String) {
+    appearance::set(&app, &choice);
+}
+
 #[tauri::command]
 async fn search_keyword(store: tauri::State<'_, Store>, query: String) -> Result<Vec<KeywordHit>, String> {
     Ok(store.keyword_search(&query, 60))
@@ -424,7 +430,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![list_notes, read_note, create_note, save_note, trash_note, open_window, open_external, copy_text, reveal, search_keyword, search_semantic, embed_status, flush_embeddings, closed_notes, record_closed, forget_closed])
+        .invoke_handler(tauri::generate_handler![list_notes, read_note, create_note, save_note, trash_note, open_window, open_external, copy_text, reveal, search_keyword, search_semantic, embed_status, flush_embeddings, closed_notes, record_closed, forget_closed, set_appearance])
         .setup(|app| {
             let worker = app.handle().clone();
             std::thread::spawn(move || embed::run(worker));

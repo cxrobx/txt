@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { Search } from 'lucide-react';
+import { Moon, Search, Sun } from 'lucide-react';
 import RichText from './editor/RichText.jsx';
 import { parseAppLink } from './editor/app-links.mjs';
 import Switcher from './Switcher.jsx';
@@ -27,18 +27,35 @@ const api = {
   closed: () => invoke('closed_notes'),
   recordClosed: ids => invoke('record_closed', { ids }),
   forgetClosed: id => invoke('forget_closed', { id }),
+  setAppearance: choice => invoke('set_appearance', { choice }),
 };
 const SAVE_DELAY = 600;
 let nextKey = 1;
 
 function tabFromDoc(doc) {
-  return { key: nextKey++, id: doc.id, kind: doc.kind, title: doc.title, titleSource: doc.title_source, body: doc.body, modified: doc.modified, loadKey: 0, status: 'saved' };
+  return { key: nextKey++, id: doc.id, kind: doc.kind, title: doc.title, titleSource: doc.title_source, body: doc.body, savedBody: doc.body, modified: doc.modified, loadKey: 0, status: 'saved' };
 }
 function draftTab(name) {
-  return { key: nextKey++, id: null, name: name || null, kind: 'md', title: name || '', titleSource: name ? 'manual' : 'derived', body: '', modified: null, loadKey: 0, status: 'saved' };
+  return { key: nextKey++, id: null, name: name || null, kind: 'md', title: name || '', titleSource: name ? 'manual' : 'derived', body: '', savedBody: '', modified: null, loadKey: 0, status: 'saved' };
 }
 const isBlankDraft = tab => tab && !tab.id && !tab.body.trim() && !tab.name;
 export const tabLabel = tab => tab.titleSource === 'derived' ? derivedTitle(tab.body) : (tab.title || 'Untitled');
+
+// Shows where a click takes you: the moon in light mode, the sun in dark.
+// The window's theme drives `prefers-color-scheme`, so this just follows it.
+function ThemeButton() {
+  const media = useMemo(() => matchMedia('(prefers-color-scheme: dark)'), []);
+  const [dark, setDark] = useState(media.matches);
+  useEffect(() => {
+    const onChange = () => setDark(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, [media]);
+  const label = dark ? 'Light mode' : 'Dark mode';
+  return <button className="bar-button" aria-label={label} title={label} onClick={() => api.setAppearance(dark ? 'light' : 'dark')}>
+    {dark ? <Sun size={14} /> : <Moon size={14} />}
+  </button>;
+}
 
 export default function App() {
   const [tabs, setTabsState] = useState([]);
@@ -53,6 +70,8 @@ export default function App() {
   const timers = useRef({});
   const inflight = useRef({});
   const editors = useRef({});
+  const titleInputs = useRef({});
+  const deferredTitles = useRef({}); // auto titles that arrived while you were in the title field
 
   const setTabs = next => { tabsRef.current = typeof next === 'function' ? next(tabsRef.current) : next; setTabsState(tabsRef.current); };
   const update = (key, patch) => setTabs(all => all.map(t => t.key === key ? { ...t, ...patch } : t));
@@ -83,8 +102,18 @@ export default function App() {
           id = doc.id; modified = doc.modified;
           update(key, { id, kind: doc.kind, modified, name: null });
         }
-        const meta = await api.save(id, work.body, work.title ?? null, work.force ? null : modified);
-        update(key, { modified: meta.modified, title: meta.title, titleSource: meta.title_source, status: pending.current[key] ? 'dirty' : 'saved', error: null });
+        let meta;
+        try {
+          meta = await api.save(id, work.body, work.title ?? null, work.force ? null : modified);
+        } catch (error) {
+          // An auto title rewrites only the front matter. If the text on disk is
+          // still the text this edit started from, nothing of yours is lost by
+          // saving over it, and a title you typed beats the model's.
+          const doc = String(error).startsWith('conflict') && await api.read(id).catch(() => null);
+          if (!doc || doc.body !== tab.savedBody) throw error;
+          meta = await api.save(id, work.body, work.title ?? null, doc.modified);
+        }
+        update(key, { modified: meta.modified, title: meta.title, titleSource: meta.title_source, savedBody: work.body, status: pending.current[key] ? 'dirty' : 'saved', error: null });
       } catch (error) {
         pending.current[key] ??= work;
         update(key, String(error).startsWith('conflict') ? { status: 'conflict' } : { status: 'error', error: String(error) });
@@ -107,8 +136,15 @@ export default function App() {
   const onBody = useCallback((key, body) => { update(key, { body }); queue(key, { body }); }, [queue]);
   const onTitle = (key, title) => {
     const tab = tabByKey(key);
+    delete deferredTitles.current[key];
     update(key, { title, titleSource: title.trim() ? 'manual' : 'derived' });
     queue(key, { body: tab.body, title });
+  };
+
+  const onTitleBlur = key => {
+    const title = deferredTitles.current[key];
+    delete deferredTitles.current[key];
+    if (title) update(key, title);
   };
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
@@ -191,7 +227,7 @@ export default function App() {
     }
     delete pending.current[key];
     const doc = await api.read(tab.id);
-    update(key, { body: doc.body, title: doc.title, titleSource: doc.title_source, modified: doc.modified, loadKey: tab.loadKey + 1, status: 'saved' });
+    update(key, { body: doc.body, savedBody: doc.body, title: doc.title, titleSource: doc.title_source, modified: doc.modified, loadKey: tab.loadKey + 1, status: 'saved' });
   };
 
   const openLink = useCallback(href => {
@@ -250,8 +286,12 @@ export default function App() {
           if (!clean(current) || doc.modified === current.modified) continue;
           // An auto title changes only the front matter: keep the editor (and
           // its caret and undo history) when the text is what's on screen.
-          if (doc.body === current.body) update(tab.key, { title: doc.title, titleSource: doc.title_source, modified: doc.modified });
-          else update(tab.key, { body: doc.body, title: doc.title, titleSource: doc.title_source, modified: doc.modified, loadKey: current.loadKey + 1 });
+          // Nor does it land in a title field you're in: it waits until you leave.
+          if (doc.body === current.body) {
+            const title = { title: doc.title, titleSource: doc.title_source };
+            if (document.activeElement === titleInputs.current[tab.key]) { deferredTitles.current[tab.key] = title; update(tab.key, { modified: doc.modified }); }
+            else update(tab.key, { ...title, modified: doc.modified });
+          } else update(tab.key, { body: doc.body, savedBody: doc.body, title: doc.title, titleSource: doc.title_source, modified: doc.modified, loadKey: current.loadKey + 1 });
         } catch { update(tab.key, { status: 'error', error: 'This note was moved or deleted.' }); }
       }
     });
@@ -282,6 +322,7 @@ export default function App() {
     <TabBar tabs={tabs} activeKey={activeKey} label={tabLabel} onActivate={activate} onClose={key => closeTab(key)} onNew={() => newTab()}
       onMove={moveTab} onCloseOthers={closeOthers}>
       <div className="bar-spacer" data-tauri-drag-region />
+      <ThemeButton />
       <button className="bar-button switch-button" aria-label="Open note (⌘P)" title="Open note (⌘P)" onClick={() => handlers.current.switch()}><Search size={14} /><kbd>⌘P</kbd></button>
     </TabBar>
 
@@ -293,8 +334,8 @@ export default function App() {
           <button onClick={() => resolveConflict(tab.key, true)}>Keep mine</button>
         </div>}
         {tab.status === 'error' && <div className="banner" role="alert">{tab.error}</div>}
-        <input className="note-title" value={tab.titleSource === 'derived' ? '' : tab.title} placeholder="Title"
-          aria-label="Title" spellCheck={false} onChange={e => onTitle(tab.key, e.target.value)}
+        <input className="note-title" ref={el => { titleInputs.current[tab.key] = el; }} value={tab.titleSource === 'derived' ? '' : tab.title} placeholder="Title"
+          aria-label="Title" spellCheck={false} onChange={e => onTitle(tab.key, e.target.value)} onBlur={() => onTitleBlur(tab.key)}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); editors.current[tab.key]?.focus('start'); } }} />
         {tab.kind === 'txt'
           ? <PlainText key={`${tab.key}:${tab.loadKey}`} ref={el => { editors.current[tab.key] = el; }} body={tab.body} onChange={body => onBody(tab.key, body)} />
