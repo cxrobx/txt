@@ -38,3 +38,13 @@ rmcp = { version = "1", features = ["server", "macros", "transport-io", "transpo
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 schemars = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "net", "signal"] }
+
+# Never strip proc-macros (or build scripts). On macOS 27 a stripped
+# proc-macro dylib is refused at load time, so rustc reports `can't find crate
+# for tauri_macros` and the build fails (seen on the Mac mini, 2026-11-07; the
+# same fix as cxmail 9edd632). build-override covers every build-time unit.
+[profile.dev.build-override]
+strip = "none"
+
+[profile.release.build-override]
+strip = "none"
