@@ -579,6 +579,8 @@ mod tests {
         assert!(s.set_auto_title(&doc.meta.id, "Theirs", doc.meta.modified).is_err());
         let md = s.create(None).unwrap();
         let saved = s.save(&md.meta.id, "# body\n\ntext", None, false, None).unwrap();
+        // `modified` is mtime in ms: in the same ms the auto title wouldn't change it.
+        std::thread::sleep(std::time::Duration::from_millis(5));
         let meta = s.set_auto_title(&md.meta.id, "Body Text", saved.modified).unwrap();
         assert_eq!(meta.title_source, "auto");
         assert_eq!(s.read(&md.meta.id).unwrap().body, "# body\n\ntext");
