@@ -81,6 +81,13 @@ Settings go under `titles` in the same `config.json`:
 claude mcp add --scope user txt /Applications/txt.app/Contents/MacOS/txt-mcp
 ```
 
+Or run one shared process (for example from a LaunchAgent) and point every session at it:
+
+```sh
+/Applications/txt.app/Contents/MacOS/txt-mcp --http 18703
+claude mcp add --scope user --transport http txt http://127.0.0.1:18703/mcp
+```
+
 ## Develop
 
 ```sh

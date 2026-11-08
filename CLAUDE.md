@@ -13,7 +13,7 @@ Tauri 2 (Rust) + React + Tiptap. The editor is lifted from [Margin Notes](https:
 | `src/App.jsx` | One window: tabs, saving, menu commands |
 | `src-tauri/src/embed.rs` | Meaning search: the batch worker, `index.db`, per-model prefixes, the score cut-off |
 | `src-tauri/src/titles.rs` | Auto titles: when a note gets one, the prompt, cleaning the model's answer |
-| `src-tauri/src/mcp.rs` | The MCP tools; `src/bin/txt-mcp.rs` is its stdio entry point, bundled as `Contents/MacOS/txt-mcp` |
+| `src-tauri/src/mcp.rs` | The MCP tools; `src/bin/txt-mcp.rs` is its entry point (stdio, or `--http PORT` for one shared process), bundled as `Contents/MacOS/txt-mcp` |
 | `src/TabBar.jsx` | Onyx's tab bar (`ask-widget/src/onyx/tabs_ui.py`), minus auto-hide and split view: 180→88 px pills, overflow into the ⌄ list, hover-widen with scrolling titles, drag to reorder. Widths and `hidden` are set on the DOM, never through React props |
 | `src-tauri/src/closed.rs` + `src/recents.mjs` | Recently closed notes: one app-wide `closed.json` (newest 20); the empty ⌘P lists them, ⌘⇧T reopens the newest |
 | `src-tauri/src/appearance.rs` | View → Appearance (System / Light / Dark), saved as `appearance` in the support folder. It sets each window's own theme; the page follows through `prefers-color-scheme` (`main.jsx`), so the web side has no setting |
@@ -71,6 +71,7 @@ $LSR -u src-tauri/target/release/bundle/macos/txt.app; $LSR -f /Applications/txt
 - **Two bundles registered for `txt://`.** LaunchServices learns about the build folder's `txt.app` too, and can route links there. Unregister it after every build (the `-u` line above).
 - **Live reload is a 1 s mtime poll** (`watch` in `lib.rs`), not FSEvents: ~150 `stat` calls, no reads, no extra crate. It emits `notes-changed` with `by: "disk"`. A window reloads only tabs with nothing pending or in flight, and checks that again after its read; a tab you're typing in keeps your text and gets the conflict banner at its next save.
 - **Two processes write `index.json`:** the app and `txt-mcp`. `Store::index()` re-reads the file whenever its mtime isn't the one this process last saw, so neither saves over the other's ids. Always lock through `index()`, never `self.index.lock()` directly. The test `two_processes_never_drop_each_others_index_entries` guards this.
+- **`txt-mcp --http PORT` is one process for every session** (streamable HTTP at `127.0.0.1:PORT/mcp`, loopback only; rmcp answers a non-loopback `Host` with 403). Sessions share one `Store` and one `Index` through `TxtMcp::shared`, so a handler must never hold anything about its client. `search_notes` runs in `spawn_blocking` because its embedding call can wait 30 s. No orphan watchdog in either mode: under launchd the parent pid is 1.
 - `txt-mcp resolve <id>` prints `{id,title,path}` or exits 2; Margin's link chips call it. Keep its output stable.
 - **`txt-mcp` has no delete or replace tool, on purpose.** `append_note` saves with the `modified` it read, so a simultaneous edit in txt is refused rather than overwritten.
 - **`scripts/build-mcp.sh` stages a placeholder first.** `txt-mcp` is in the app's own crate, and tauri-build won't compile that crate until `binaries/txt-mcp-<triple>` exists.
