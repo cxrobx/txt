@@ -91,11 +91,16 @@ xcrun notarytool history --keychain-profile "$APPLE_KEYCHAIN_PROFILE" >/dev/null
   || die "the notarytool keychain profile '$APPLE_KEYCHAIN_PROFILE' does not work. Not creating credentials; fix or set APPLE_KEYCHAIN_PROFILE"
 echo "identity: $IDENTITY"; echo "notary profile: $APPLE_KEYCHAIN_PROFILE (works)"
 
+step "Checking the Tauri CLI"
+# The repo-pinned @tauri-apps/cli, so a machine without cargo-tauri (the mini) builds the same way.
+[ -x node_modules/.bin/tauri ] || npm ci --no-audit --no-fund
+npx --no-install tauri --version
+
 step "Testing"
 (cd src-tauri && cargo test --quiet 2>&1 | grep -E "^test result|FAILED|panicked" ) || die "cargo test failed"
 
 step "Building and signing txt $VERSION"
-APPLE_SIGNING_IDENTITY="$IDENTITY" cargo tauri build --bundles app
+APPLE_SIGNING_IDENTITY="$IDENTITY" npx --no-install tauri build --bundles app
 BUILT="src-tauri/target/release/bundle/macos/txt.app"
 # The build folder's copy would also claim txt:// links; see CLAUDE.md.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$BUILT" 2>/dev/null || true
@@ -121,7 +126,7 @@ xcrun stapler staple "$APP"
 
 step "Packaging the update"
 COPYFILE_DISABLE=1 tar -czf "$OUT/txt.app.tar.gz" -C "$OUT" txt.app
-cargo tauri signer sign "$OUT/txt.app.tar.gz" >/dev/null
+npx --no-install tauri signer sign "$OUT/txt.app.tar.gz" >/dev/null
 [ -s "$OUT/txt.app.tar.gz.sig" ] || die "the updater signature was not written"
 node scripts/verify-updater-signature.mjs "$OUT/txt.app.tar.gz.sig" "$OUT/txt.app.tar.gz" src-tauri/tauri.conf.json | tail -1
 
