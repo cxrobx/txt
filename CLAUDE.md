@@ -52,9 +52,15 @@ LSR=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.
 $LSR -u src-tauri/target/release/bundle/macos/txt.app; $LSR -f /Applications/txt.app
 ```
 
+**On the Mac mini, restart the shared MCP server after every install** (local build or release DMG), so it runs the new `txt-mcp`. The LaunchAgent `com.cx.mcp.txt` serves `--http 18703` to every Claude session there and keeps the old binary until restarted:
+
+```sh
+launchctl print gui/$(id -u)/com.cx.mcp.txt >/dev/null 2>&1 && launchctl kickstart -k gui/$(id -u)/com.cx.mcp.txt
+```
+
 ## Releasing
 
-`scripts/release.sh X.Y.Z` builds, signs (Developer ID), notarizes (keychain profile `DiskSight`) and staples into `release/X.Y.Z/`; add `--publish` to tag, upload to GitHub Releases and run `scripts/verify-update-feed.sh`. Bump `package.json`, `package-lock.json`, `tauri.conf.json` and `Cargo.toml` first; it refuses a dirty tree or a used tag.
+`scripts/release.sh X.Y.Z` builds, signs (Developer ID), notarizes (keychain profile `DiskSight`) and staples into `release/X.Y.Z/`; add `--publish` to tag, upload to GitHub Releases and run `scripts/verify-update-feed.sh`. Bump `package.json`, `package-lock.json`, `tauri.conf.json` and `Cargo.toml` (and `Cargo.lock`) first; it refuses a dirty tree or a used tag. It does not install: mount `release/X.Y.Z/txt-X.Y.Z.dmg`, then `rm -rf /Applications/txt.app && ditto <volume>/txt.app /Applications/txt.app`, the `lsregister -f` line and, on the mini, the kickstart above. The mini has no `~/.tauri/txt.key`, so run it as `secret run -k TAURI_SIGNING_PRIVATE_KEY_TXT -- bash -c 'TAURI_SIGNING_PRIVATE_KEY="$TAURI_SIGNING_PRIVATE_KEY_TXT" scripts/release.sh X.Y.Z --publish'` (the pubkey check is then done only by `verify-updater-signature.mjs`).
 
 - **Updates:** `tauri-plugin-updater` reads `releases/latest/download/latest.json` a minute after launch, then daily, and from txt → Check for Updates… (`src/update.rs`). It installs in place and asks before restarting; the restart closes each window first so it saves. Apple Silicon only.
 - **The updater key is `~/.tauri/txt.key`** (no password), backed up as secret `TAURI_SIGNING_PRIVATE_KEY_TXT`. Losing it strands every installed copy. `release.sh` refuses to build if `plugins.updater.pubkey` differs from `txt.key.pub`: a wrong pubkey still builds and publishes, and every install silently rejects every update.
